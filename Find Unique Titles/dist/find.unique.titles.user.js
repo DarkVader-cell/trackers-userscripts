@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name Find Unique Titles
 // @description Find unique titles to cross seed
-// @version 0.0.13
+// @version 0.0.14
 // @author Mea01
 // @match https://aither.cc/torrents?*
 // @match https://avistaz.to/movies*
@@ -1636,7 +1636,6 @@
       });
       var _utils_utils__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(657);
       var _tracker__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(84);
-      var common_dom__WEBPACK_IMPORTED_MODULE_4__ = __webpack_require__(933);
       var common_searcher__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(914);
       var common_trackers__WEBPACK_IMPORTED_MODULE_3__ = __webpack_require__(263);
       const getImdbId = element => {
@@ -1689,9 +1688,16 @@
         }
         insertTrackersSelect(select) {
           select.classList.add("form__select");
-          select.style.margin = "0 0 12px 12px";
-          const target = document.querySelector(".panel__actions, .torrent-search--list__header, .panel__header, .torrent-search--list, main");
-          (0, common_dom__WEBPACK_IMPORTED_MODULE_4__.U_)(target ?? document.body, select);
+          Object.assign(select.style, {
+            position: "fixed",
+            top: "72px",
+            right: "16px",
+            zIndex: "2147483647",
+            display: "block",
+            visibility: "visible",
+            width: "170px"
+          });
+          document.body.appendChild(select);
         }
       }
     },

@@ -1,6 +1,5 @@
 import { parseImdbIdFromLink, parseSize, parseTags } from "../utils/utils";
 import { MetaData, Request, SearchResult, AbstractTracker } from "./tracker";
-import { addChild } from "common/dom";
 import { search, SearchResult as SR } from "common/searcher";
 import { LST as LSTTracker } from "common/trackers";
 
@@ -68,10 +67,15 @@ export default class LST extends AbstractTracker {
 
   insertTrackersSelect(select: HTMLElement): void {
     select.classList.add("form__select");
-    select.style.margin = "0 0 12px 12px";
-    const target = document.querySelector(
-      ".panel__actions, .torrent-search--list__header, .panel__header, .torrent-search--list, main"
-    );
-    addChild((target ?? document.body) as HTMLElement, select);
+    Object.assign(select.style, {
+      position: "fixed",
+      top: "72px",
+      right: "16px",
+      zIndex: "2147483647",
+      display: "block",
+      visibility: "visible",
+      width: "170px",
+    });
+    document.body.appendChild(select);
   }
 }
