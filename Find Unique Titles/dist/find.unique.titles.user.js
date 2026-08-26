@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name Find Unique Titles
 // @description Find unique titles to cross seed
-// @version 0.0.12
+// @version 0.0.13
 // @author Mea01
 // @match https://aither.cc/torrents?*
 // @match https://avistaz.to/movies*
@@ -1689,8 +1689,9 @@
         }
         insertTrackersSelect(select) {
           select.classList.add("form__select");
-          const actions = document.querySelector(".panel__actions");
-          if (actions) (0, common_dom__WEBPACK_IMPORTED_MODULE_4__.U_)(actions, select);
+          select.style.margin = "0 0 12px 12px";
+          const target = document.querySelector(".panel__actions, .torrent-search--list__header, .panel__header, .torrent-search--list, main");
+          (0, common_dom__WEBPACK_IMPORTED_MODULE_4__.U_)(target ?? document.body, select);
         }
       }
     },

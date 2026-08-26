@@ -68,7 +68,10 @@ export default class LST extends AbstractTracker {
 
   insertTrackersSelect(select: HTMLElement): void {
     select.classList.add("form__select");
-    const actions = document.querySelector(".panel__actions");
-    if (actions) addChild(actions as HTMLElement, select);
+    select.style.margin = "0 0 12px 12px";
+    const target = document.querySelector(
+      ".panel__actions, .torrent-search--list__header, .panel__header, .torrent-search--list, main"
+    );
+    addChild((target ?? document.body) as HTMLElement, select);
   }
 }

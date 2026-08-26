@@ -10,6 +10,9 @@ paste the content of the file `dist/find.unique.titles.user.js`.
 You can generate it by running run `npm run dev`.
 
 # Changelog
+## 0.0.13
+- Show the LST tracker selector on UNIT3D layouts without a panel actions area.
+
 ## 0.0.12
 - Add LST (lst.gg) support as a UNIT3D source and target.
 - Enable LST and BHD listings to be checked against Aither.
