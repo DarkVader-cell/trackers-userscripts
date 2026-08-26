@@ -46,25 +46,41 @@ const parseCategory = (element: Element) => {
 
 const parseTorrentsFromTorrentsPage = (): Array<Request> => {
   const requests: Array<Request<any>> = [];
-  Array.from(document.querySelectorAll('tr[id^="torrentposter"]')).forEach(
+  Array.from(
+    document.querySelectorAll(
+      'tr[id^="torrentposter"], tr[id^="resulttorrent"], .torrent-search--list__results tbody tr'
+    )
+  ).forEach(
     (element) => {
       let imdbId = null;
+      const directImdbId = element.getAttribute("data-imdb-id");
+      if (directImdbId) {
+        imdbId = directImdbId.startsWith("tt")
+          ? directImdbId
+          : `tt${directImdbId}`;
+      }
       let libraryId = element.getAttribute("library");
-      if (libraryId) {
+      if (!imdbId && libraryId) {
         let imdbElement = document.querySelector(`#librarydiv${libraryId}`);
         if (imdbElement) {
           imdbId = parseImdbIdFromLink(imdbElement as HTMLElement);
         }
       }
+      if (!imdbId) imdbId = parseImdbIdFromLink(element as HTMLElement);
       const tags = [];
       const torrentName =
-        element.children[1].querySelector('a[id^="torrent"]')!!.textContent!!;
+        element.querySelector('a[id^="torrent"], .torrent-search--list__name')
+          ?.textContent ?? element.textContent ?? "";
       if (torrentName.toUpperCase().includes("REMUX")) {
         tags.push("Remux");
       }
+      const sizeText =
+        element.querySelector(".torrent-search--list__size")?.textContent ??
+        element.children[5]?.textContent ??
+        "";
       const torrent: Torrent = {
         dom: element,
-        size: parseSize(element.children[5].textContent),
+        size: parseSize(sizeText),
         tags: tags,
         resolution: parseResolution(torrentName),
       };

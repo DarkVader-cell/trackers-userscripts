@@ -53,6 +53,7 @@ export const UserScriptConfig: IWebpackUserScript = {
       "https://karagarga.in/browse.php*",
       "https://kp.m-team.cc/*",
       "https://lat-team.com/torrents*",
+      "https://lst.gg/torrents*",
       "https://www.morethantv.me/torrents/browse*",
       "https://ncore.pro/torrents.php*",
       "https://newinsane.info/browse.php*",
@@ -77,8 +78,8 @@ export const UserScriptConfig: IWebpackUserScript = {
       "GM_registerMenuCommand",
     ],
     updateURL:
-      "https://github.com/Moreasan/trackers-userscripts/blob/master/Find%20Unique%20Titles/dist/find.unique.titles.user.js",
+      "https://raw.githubusercontent.com/DarkVader-cell/trackers-userscripts/master/Find%20Unique%20Titles/dist/find.unique.titles.user.js",
     downloadURL:
-      "https://github.com/Moreasan/trackers-userscripts/blob/master/Find%20Unique%20Titles/dist/find.unique.titles.user.js",
+      "https://raw.githubusercontent.com/DarkVader-cell/trackers-userscripts/master/Find%20Unique%20Titles/dist/find.unique.titles.user.js",
   },
 };

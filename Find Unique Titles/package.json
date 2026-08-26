@@ -1,13 +1,13 @@
 {
   "name": "find.unique.titles",
   "description": "Find unique titles to cross seed",
-  "version": "0.0.11",
+  "version": "0.0.12",
   "author": {
     "name": "Mea01"
   },
   "scripts": {
     "dev": "webpack server --node-env development --config config/webpack.config.ts",
-    "build": "webpack --node-env production --progress --config config/webpack.config.ts",
+    "build": "NODE_ENV=production webpack --progress --config config/webpack.config.ts",
     "format": "prettier --write --ignore-unknown src",
     "check-types": "tsc --noEmit"
   },

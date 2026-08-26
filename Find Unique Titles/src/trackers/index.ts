@@ -18,6 +18,7 @@ import JPTV from "./JPTV";
 import JPop from "./JPop";
 import KG from "./KG";
 import LatTeam from "./LatTeam";
+import LST from "./LST";
 import MTV from "./MTV";
 import MTeam from "./MTeam";
 import NewInsane from "./NewInsane";
@@ -52,6 +53,7 @@ export {
   JPop,
   KG,
   LatTeam,
+  LST,
   MTV,
   MTeam,
   nCore,

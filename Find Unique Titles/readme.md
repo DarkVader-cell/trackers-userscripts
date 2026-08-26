@@ -1,10 +1,21 @@
 Find Unique Titles is a user script that allow finding content to upload from other trackers.
 
 # Install
-You copy paste the content of the file `dist/find.unique.titles.user.js`.
+Install directly in Tampermonkey from:
+
+`https://raw.githubusercontent.com/DarkVader-cell/trackers-userscripts/master/Find%20Unique%20Titles/dist/find.unique.titles.user.js`
+
+Tampermonkey will check that URL for updates automatically. You can also copy
+paste the content of the file `dist/find.unique.titles.user.js`.
 You can generate it by running run `npm run dev`.
 
 # Changelog
+## 0.0.12
+- Add LST (lst.gg) support as a UNIT3D source and target.
+- Enable LST and BHD listings to be checked against Aither.
+- Improve BHD torrent-row parsing for current and legacy listing layouts.
+- Serve updates from the DarkVader-cell repository.
+
 ## 2023-12
 - Add support for MTV
 - Add support for using title and year when IMDB ID is not available when checking titles on PTP.
