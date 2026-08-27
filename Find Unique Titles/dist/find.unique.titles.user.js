@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name Find Unique Titles
 // @description Find unique titles to cross seed
-// @version 0.0.16
+// @version 0.0.17
 // @author Mea01
 // @match https://aither.cc/torrents?*
 // @match https://avistaz.to/movies*
@@ -243,10 +243,8 @@
       });
       var _utils_utils__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(657);
       var _tracker__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(84);
-      var common_dom__WEBPACK_IMPORTED_MODULE_5__ = __webpack_require__(933);
+      var common_dom__WEBPACK_IMPORTED_MODULE_3__ = __webpack_require__(933);
       var common_http__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(257);
-      var common_searcher__WEBPACK_IMPORTED_MODULE_3__ = __webpack_require__(914);
-      var common_trackers__WEBPACK_IMPORTED_MODULE_4__ = __webpack_require__(263);
       const parseCategory = element => {
         const categoryLink = element.querySelector(".torrent__category-link");
         if (!categoryLink) return;
@@ -301,12 +299,12 @@
         async search(request) {
           if (request.category !== _tracker__WEBPACK_IMPORTED_MODULE_0__.WD.MOVIE && request.category !== _tracker__WEBPACK_IMPORTED_MODULE_0__.WD.TV) return _tracker__WEBPACK_IMPORTED_MODULE_0__.lt.NOT_CHECKED;
           if (!request.imdbId) return _tracker__WEBPACK_IMPORTED_MODULE_0__.lt.NOT_CHECKED;
-          const result = await (0, common_searcher__WEBPACK_IMPORTED_MODULE_3__.yC)(common_trackers__WEBPACK_IMPORTED_MODULE_4__.iep, {
-            movie_title: "",
-            movie_imdb_id: request.imdbId
-          });
-          if (result == common_searcher__WEBPACK_IMPORTED_MODULE_3__.lt.LOGGED_OUT) return _tracker__WEBPACK_IMPORTED_MODULE_0__.lt.NOT_LOGGED_IN;
-          return result == common_searcher__WEBPACK_IMPORTED_MODULE_3__.lt.NOT_FOUND ? _tracker__WEBPACK_IMPORTED_MODULE_0__.lt.NOT_EXIST : _tracker__WEBPACK_IMPORTED_MODULE_0__.lt.EXIST;
+          const result = await (0, common_http__WEBPACK_IMPORTED_MODULE_1__.uU)(`https://aither.cc/torrents?imdbId=${request.imdbId.substring(2)}`);
+          if (/forgot your password|login/i.test(result.textContent ?? "")) return _tracker__WEBPACK_IMPORTED_MODULE_0__.lt.NOT_LOGGED_IN;
+          return result.querySelector("article.torrent-search-row, .torrent-search--list__overview, .torrent-search--list tbody tr") ? _tracker__WEBPACK_IMPORTED_MODULE_0__.lt.EXIST : _tracker__WEBPACK_IMPORTED_MODULE_0__.lt.NOT_EXIST;
+        }
+        waitTimeInMillisBetweenRequest() {
+          return 300;
         }
         insertTrackersSelect(select) {
           const parent = document.querySelector(".panelV2 .panel__header");
@@ -315,8 +313,8 @@
           select.style.width = "170px";
           div.classList.add("form__group");
           select.classList.add("form__select");
-          (0, common_dom__WEBPACK_IMPORTED_MODULE_5__.U_)(div, select);
-          (0, common_dom__WEBPACK_IMPORTED_MODULE_5__.BE)(div, parent.querySelector("h2"));
+          (0, common_dom__WEBPACK_IMPORTED_MODULE_3__.U_)(div, select);
+          (0, common_dom__WEBPACK_IMPORTED_MODULE_3__.BE)(div, parent.querySelector("h2"));
         }
       }
     },
@@ -3659,7 +3657,6 @@
         Uxl: () => Tik,
         YE3: () => MTV_TV,
         _0y: () => CHD,
-        iep: () => Aither,
         w8u: () => LST
       });
       const AT = {
@@ -3668,14 +3665,6 @@
         loggedOutRegex: /Forgot Your Password/,
         matchRegex: /class="overlay-container"|class="movie-poster/,
         positiveMatch: true
-      };
-      const Aither = {
-        name: "Aither",
-        searchUrl: "https://aither.cc/torrents?imdbId=%nott%",
-        loggedOutRegex: /Cloudflare|Ray ID|Forgot Your Password/,
-        matchRegex: /torrent-search--list__overview/,
-        positiveMatch: true,
-        both: true
       };
       const CHD = {
         name: "CHD",

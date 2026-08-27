@@ -14,8 +14,6 @@ import {
 } from "./tracker";
 import { addChild, insertAfter } from "common/dom";
 import { fetchAndParseHtml } from "common/http";
-import { search, SearchResult as SR } from "common/searcher";
-import { Aither as AitherTracker } from "common/trackers";
 
 const parseCategory = (element: HTMLElement): Category | undefined => {
   const categoryLink = element.querySelector(".torrent__category-link");
@@ -90,12 +88,21 @@ export default class Aither extends AbstractTracker {
       return SearchResult.NOT_CHECKED;
     if (!request.imdbId) return SearchResult.NOT_CHECKED;
 
-    const result = await search(AitherTracker, {
-      movie_title: "",
-      movie_imdb_id: request.imdbId,
-    });
-    if (result == SR.LOGGED_OUT) return SearchResult.NOT_LOGGED_IN;
-    return result == SR.NOT_FOUND ? SearchResult.NOT_EXIST : SearchResult.EXIST;
+    const result = await fetchAndParseHtml(
+      `https://aither.cc/torrents?imdbId=${request.imdbId.substring(2)}`
+    );
+    if (/forgot your password|login/i.test(result.textContent ?? ""))
+      return SearchResult.NOT_LOGGED_IN;
+
+    return result.querySelector(
+      "article.torrent-search-row, .torrent-search--list__overview, .torrent-search--list tbody tr"
+    )
+      ? SearchResult.EXIST
+      : SearchResult.NOT_EXIST;
+  }
+
+  waitTimeInMillisBetweenRequest(): number {
+    return 300;
   }
 
   insertTrackersSelect(select: HTMLElement): void {
