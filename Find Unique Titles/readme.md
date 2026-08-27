@@ -10,6 +10,9 @@ paste the content of the file `dist/find.unique.titles.user.js`.
 You can generate it by running run `npm run dev`.
 
 # Changelog
+## 0.0.16
+- Use LST's torrent detail route to retrieve IMDb IDs and movie/TV categories.
+
 ## 0.0.15
 - Parse LST's current card-based torrent results and retrieve IMDb IDs when needed.
 

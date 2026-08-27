@@ -27,6 +27,20 @@ const getCategory = (element: HTMLElement): Category | undefined => {
   return undefined;
 };
 
+const getCategoryFromTorrentPage = (
+  element: HTMLElement
+): Category | undefined => {
+  const uploadLink = element.querySelector(
+    "a[href*='torrents/create?category_id=']"
+  ) as HTMLAnchorElement | null;
+  if (!uploadLink) return undefined;
+
+  const categoryId = new URL(uploadLink.href).searchParams.get("category_id");
+  if (categoryId === "1") return Category.MOVIE;
+  if (categoryId === "2") return Category.TV;
+  return undefined;
+};
+
 export default class LST extends AbstractTracker {
   canBeUsedAsSource(): boolean {
     return true;
@@ -57,12 +71,14 @@ export default class LST extends AbstractTracker {
         ".torrent-search--list__size, .torrent-search-row__stat--size, [class*='size']"
       );
       let imdbId = getImdbId(element);
-      const torrentLink = element.querySelector(
-        ".torrent-search-row__name a, a[href*='/torrents/']"
-      ) as HTMLAnchorElement | null;
-      if (!imdbId && torrentLink?.href) {
-        const torrentPage = await fetchAndParseHtml(torrentLink.href);
+      let category = getCategory(element);
+      const torrentId = element.getAttribute("data-torrent-id");
+      if (!imdbId && torrentId) {
+        const torrentPage = await fetchAndParseHtml(
+          `${window.location.origin}/torrents/${torrentId}`
+        );
         imdbId = parseImdbIdFromLink(torrentPage);
+        category = getCategoryFromTorrentPage(torrentPage) ?? category;
       }
       const request: Request = {
         torrents: [
@@ -75,7 +91,7 @@ export default class LST extends AbstractTracker {
         dom: [element],
         imdbId,
         title: torrentName,
-        category: getCategory(element),
+        category,
       };
       yield request;
     }

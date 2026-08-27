@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name Find Unique Titles
 // @description Find unique titles to cross seed
-// @version 0.0.15
+// @version 0.0.16
 // @author Mea01
 // @match https://aither.cc/torrents?*
 // @match https://avistaz.to/movies*
@@ -1650,6 +1650,14 @@
         if (category?.includes("tv") || category?.includes("television")) return _tracker__WEBPACK_IMPORTED_MODULE_1__.WD.TV;
         return;
       };
+      const getCategoryFromTorrentPage = element => {
+        const uploadLink = element.querySelector("a[href*='torrents/create?category_id=']");
+        if (!uploadLink) return;
+        const categoryId = new URL(uploadLink.href).searchParams.get("category_id");
+        if ("1" === categoryId) return _tracker__WEBPACK_IMPORTED_MODULE_1__.WD.MOVIE;
+        if ("2" === categoryId) return _tracker__WEBPACK_IMPORTED_MODULE_1__.WD.TV;
+        return;
+      };
       class LST extends _tracker__WEBPACK_IMPORTED_MODULE_1__.xw {
         canBeUsedAsSource() {
           return true;
@@ -1669,10 +1677,12 @@
             const torrentName = element.querySelector(".torrent-search-row__name")?.textContent?.trim() ?? element.textContent?.trim() ?? "";
             const sizeElement = element.querySelector(".torrent-search--list__size, .torrent-search-row__stat--size, [class*='size']");
             let imdbId = getImdbId(element);
-            const torrentLink = element.querySelector(".torrent-search-row__name a, a[href*='/torrents/']");
-            if (!imdbId && torrentLink?.href) {
-              const torrentPage = await (0, common_http__WEBPACK_IMPORTED_MODULE_2__.uU)(torrentLink.href);
+            let category = getCategory(element);
+            const torrentId = element.getAttribute("data-torrent-id");
+            if (!imdbId && torrentId) {
+              const torrentPage = await (0, common_http__WEBPACK_IMPORTED_MODULE_2__.uU)(`${window.location.origin}/torrents/${torrentId}`);
               imdbId = (0, _utils_utils__WEBPACK_IMPORTED_MODULE_0__.VB)(torrentPage);
+              category = getCategoryFromTorrentPage(torrentPage) ?? category;
             }
             const request = {
               torrents: [ {
@@ -1683,7 +1693,7 @@
               dom: [ element ],
               imdbId,
               title: torrentName,
-              category: getCategory(element)
+              category
             };
             yield request;
           }
