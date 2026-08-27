@@ -1,5 +1,12 @@
 import { parseImdbIdFromLink, parseSize, parseTags } from "../utils/utils";
-import { MetaData, Request, SearchResult, AbstractTracker } from "./tracker";
+import {
+  Category,
+  MetaData,
+  Request,
+  SearchResult,
+  AbstractTracker,
+} from "./tracker";
+import { fetchAndParseHtml } from "common/http";
 import { search, SearchResult as SR } from "common/searcher";
 import { LST as LSTTracker } from "common/trackers";
 
@@ -7,6 +14,17 @@ const getImdbId = (element: HTMLElement): string | null => {
   const imdbId = element.getAttribute("data-imdb-id");
   if (imdbId) return imdbId.startsWith("tt") ? imdbId : `tt${imdbId}`;
   return parseImdbIdFromLink(element);
+};
+
+const getCategory = (element: HTMLElement): Category | undefined => {
+  const category = element
+    .querySelector(".torrent-search-row__category")
+    ?.textContent?.trim()
+    .toLowerCase();
+  if (category?.includes("movie")) return Category.MOVIE;
+  if (category?.includes("tv") || category?.includes("television"))
+    return Category.TV;
+  return undefined;
 };
 
 export default class LST extends AbstractTracker {
@@ -25,16 +43,27 @@ export default class LST extends AbstractTracker {
   async *getSearchRequest(): AsyncGenerator<MetaData | Request, void, void> {
     const elements = Array.from(
       document.querySelectorAll(
-        ".torrent-search--list__results tbody tr, .torrent-search--list tbody tr"
+        ".torrent-search--list__results tbody tr, .torrent-search--list tbody tr, article.torrent-search-row"
       )
     ) as HTMLElement[];
 
     yield { total: elements.length };
     for (const element of elements) {
-      const torrentName = element.textContent?.trim() ?? "";
+      const torrentName =
+        element.querySelector(".torrent-search-row__name")?.textContent?.trim() ??
+        element.textContent?.trim() ??
+        "";
       const sizeElement = element.querySelector(
-        ".torrent-search--list__size, [class*='size']"
+        ".torrent-search--list__size, .torrent-search-row__stat--size, [class*='size']"
       );
+      let imdbId = getImdbId(element);
+      const torrentLink = element.querySelector(
+        ".torrent-search-row__name a, a[href*='/torrents/']"
+      ) as HTMLAnchorElement | null;
+      if (!imdbId && torrentLink?.href) {
+        const torrentPage = await fetchAndParseHtml(torrentLink.href);
+        imdbId = parseImdbIdFromLink(torrentPage);
+      }
       const request: Request = {
         torrents: [
           {
@@ -44,8 +73,9 @@ export default class LST extends AbstractTracker {
           },
         ],
         dom: [element],
-        imdbId: getImdbId(element),
-        title: "",
+        imdbId,
+        title: torrentName,
+        category: getCategory(element),
       };
       yield request;
     }

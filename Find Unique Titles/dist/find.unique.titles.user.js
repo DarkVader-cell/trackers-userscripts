@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name Find Unique Titles
 // @description Find unique titles to cross seed
-// @version 0.0.14
+// @version 0.0.15
 // @author Mea01
 // @match https://aither.cc/torrents?*
 // @match https://avistaz.to/movies*
@@ -1636,12 +1636,19 @@
       });
       var _utils_utils__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(657);
       var _tracker__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(84);
-      var common_searcher__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(914);
-      var common_trackers__WEBPACK_IMPORTED_MODULE_3__ = __webpack_require__(263);
+      var common_http__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(257);
+      var common_searcher__WEBPACK_IMPORTED_MODULE_3__ = __webpack_require__(914);
+      var common_trackers__WEBPACK_IMPORTED_MODULE_4__ = __webpack_require__(263);
       const getImdbId = element => {
         const imdbId = element.getAttribute("data-imdb-id");
         if (imdbId) return imdbId.startsWith("tt") ? imdbId : `tt${imdbId}`;
         return (0, _utils_utils__WEBPACK_IMPORTED_MODULE_0__.VB)(element);
+      };
+      const getCategory = element => {
+        const category = element.querySelector(".torrent-search-row__category")?.textContent?.trim().toLowerCase();
+        if (category?.includes("movie")) return _tracker__WEBPACK_IMPORTED_MODULE_1__.WD.MOVIE;
+        if (category?.includes("tv") || category?.includes("television")) return _tracker__WEBPACK_IMPORTED_MODULE_1__.WD.TV;
+        return;
       };
       class LST extends _tracker__WEBPACK_IMPORTED_MODULE_1__.xw {
         canBeUsedAsSource() {
@@ -1654,13 +1661,19 @@
           return url.includes("lst.gg/torrents");
         }
         async* getSearchRequest() {
-          const elements = Array.from(document.querySelectorAll(".torrent-search--list__results tbody tr, .torrent-search--list tbody tr"));
+          const elements = Array.from(document.querySelectorAll(".torrent-search--list__results tbody tr, .torrent-search--list tbody tr, article.torrent-search-row"));
           yield {
             total: elements.length
           };
           for (const element of elements) {
-            const torrentName = element.textContent?.trim() ?? "";
-            const sizeElement = element.querySelector(".torrent-search--list__size, [class*='size']");
+            const torrentName = element.querySelector(".torrent-search-row__name")?.textContent?.trim() ?? element.textContent?.trim() ?? "";
+            const sizeElement = element.querySelector(".torrent-search--list__size, .torrent-search-row__stat--size, [class*='size']");
+            let imdbId = getImdbId(element);
+            const torrentLink = element.querySelector(".torrent-search-row__name a, a[href*='/torrents/']");
+            if (!imdbId && torrentLink?.href) {
+              const torrentPage = await (0, common_http__WEBPACK_IMPORTED_MODULE_2__.uU)(torrentLink.href);
+              imdbId = (0, _utils_utils__WEBPACK_IMPORTED_MODULE_0__.VB)(torrentPage);
+            }
             const request = {
               torrents: [ {
                 size: sizeElement ? (0, _utils_utils__WEBPACK_IMPORTED_MODULE_0__._8)(sizeElement.textContent ?? "") : null,
@@ -1668,8 +1681,9 @@
                 dom: element
               } ],
               dom: [ element ],
-              imdbId: getImdbId(element),
-              title: ""
+              imdbId,
+              title: torrentName,
+              category: getCategory(element)
             };
             yield request;
           }
@@ -1679,12 +1693,12 @@
         }
         async search(request) {
           if (!request.imdbId) return _tracker__WEBPACK_IMPORTED_MODULE_1__.lt.NOT_CHECKED;
-          const result = await (0, common_searcher__WEBPACK_IMPORTED_MODULE_2__.yC)(common_trackers__WEBPACK_IMPORTED_MODULE_3__.w8u, {
+          const result = await (0, common_searcher__WEBPACK_IMPORTED_MODULE_3__.yC)(common_trackers__WEBPACK_IMPORTED_MODULE_4__.w8u, {
             movie_title: "",
             movie_imdb_id: request.imdbId
           });
-          if (result === common_searcher__WEBPACK_IMPORTED_MODULE_2__.lt.LOGGED_OUT) return _tracker__WEBPACK_IMPORTED_MODULE_1__.lt.NOT_LOGGED_IN;
-          return result === common_searcher__WEBPACK_IMPORTED_MODULE_2__.lt.NOT_FOUND ? _tracker__WEBPACK_IMPORTED_MODULE_1__.lt.NOT_EXIST : _tracker__WEBPACK_IMPORTED_MODULE_1__.lt.EXIST;
+          if (result === common_searcher__WEBPACK_IMPORTED_MODULE_3__.lt.LOGGED_OUT) return _tracker__WEBPACK_IMPORTED_MODULE_1__.lt.NOT_LOGGED_IN;
+          return result === common_searcher__WEBPACK_IMPORTED_MODULE_3__.lt.NOT_FOUND ? _tracker__WEBPACK_IMPORTED_MODULE_1__.lt.NOT_EXIST : _tracker__WEBPACK_IMPORTED_MODULE_1__.lt.EXIST;
         }
         insertTrackersSelect(select) {
           select.classList.add("form__select");
