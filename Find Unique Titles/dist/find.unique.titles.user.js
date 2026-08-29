@@ -430,7 +430,7 @@
       };
       const parseCategory = element => {
         const html = element.children[0].innerHTML;
-        if (html.includes("categories/tv")) return _tracker__WEBPACK_IMPORTED_MODULE_1__.WD.TV; else if (html.includes("categories/movies")) return _tracker__WEBPACK_IMPORTED_MODULE_1__.WD.MOVIE;
+        if (html.includes("categories/tv")) return _tracker__WEBPACK_IMPORTED_MODULE_1__.WD.TV; else if (html.includes("categories/movie")) return _tracker__WEBPACK_IMPORTED_MODULE_1__.WD.MOVIE;
         return;
       };
       const parseTorrentsFromTorrentsPage = () => {
