@@ -54,7 +54,12 @@ const parseSearchTorrents = (result: HTMLElement): Torrent[] => {
   );
 
   return rows.flatMap((row) => {
-    const name = row.querySelector(".torrent-search--list__name")?.textContent;
+    const name =
+      row
+        .querySelector<HTMLElement>(
+          ".torrent-search--list__name, a[href*='/torrent/'], a[href*='/torrents/']"
+        )
+        ?.textContent?.trim() ?? row.textContent?.trim();
     if (!name) return [];
 
     const size = parseSize(

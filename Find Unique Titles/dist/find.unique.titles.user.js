@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name Find Unique Titles
 // @description Find unique titles to cross seed
-// @version 0.0.18
+// @version 0.0.19
 // @author Mea01
 // @match https://aither.cc/torrents?*
 // @match https://avistaz.to/movies*
@@ -263,7 +263,7 @@
       const parseSearchTorrents = result => {
         const rows = Array.from(result.querySelectorAll("article.torrent-search-row, .torrent-search--list tbody tr"));
         return rows.flatMap((row => {
-          const name = row.querySelector(".torrent-search--list__name")?.textContent;
+          const name = row.querySelector(".torrent-search--list__name, a[href*='/torrent/'], a[href*='/torrents/']")?.textContent?.trim() ?? row.textContent?.trim();
           if (!name) return [];
           const size = (0, _utils_utils__WEBPACK_IMPORTED_MODULE_1__._8)(row.querySelector(".torrent-search--list__size")?.textContent?.trim() ?? "");
           return [ {
