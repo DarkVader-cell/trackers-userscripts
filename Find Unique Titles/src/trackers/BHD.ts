@@ -38,9 +38,10 @@ const parseTorrents = (element: HTMLElement): Array<Torrent> => {
 };
 
 const parseCategory = (element: Element) => {
-  const html = element.children[0].innerHTML;
-  if (html.includes("categories/tv")) return Category.TV;
-  else if (html.includes("categories/movie")) return Category.MOVIE;
+  const categoryLink = element.querySelector('a[href*="categories/"]');
+  const href = categoryLink?.getAttribute("href") ?? "";
+  if (href.includes("categories/tv")) return Category.TV;
+  else if (href.includes("categories/movie")) return Category.MOVIE;
   return undefined;
 };
 

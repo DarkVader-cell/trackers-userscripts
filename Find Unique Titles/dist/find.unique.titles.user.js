@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name Find Unique Titles
 // @description Find unique titles to cross seed
-// @version 0.0.21
+// @version 0.0.22
 // @author Mea01
 // @match https://aither.cc/torrents?*
 // @match https://avistaz.to/movies*
@@ -429,8 +429,9 @@
         return torrents;
       };
       const parseCategory = element => {
-        const html = element.children[0].innerHTML;
-        if (html.includes("categories/tv")) return _tracker__WEBPACK_IMPORTED_MODULE_1__.WD.TV; else if (html.includes("categories/movie")) return _tracker__WEBPACK_IMPORTED_MODULE_1__.WD.MOVIE;
+        const categoryLink = element.querySelector('a[href*="categories/"]');
+        const href = categoryLink?.getAttribute("href") ?? "";
+        if (href.includes("categories/tv")) return _tracker__WEBPACK_IMPORTED_MODULE_1__.WD.TV; else if (href.includes("categories/movie")) return _tracker__WEBPACK_IMPORTED_MODULE_1__.WD.MOVIE;
         return;
       };
       const parseTorrentsFromTorrentsPage = () => {
