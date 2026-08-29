@@ -1,5 +1,6 @@
 import {
   parseImdbIdFromLink,
+  parseReleaseGroup,
   parseResolution,
   parseSize,
   parseTags,
@@ -84,6 +85,7 @@ const parseTorrentsFromTorrentsPage = (): Array<Request> => {
         size: parseSize(sizeText),
         tags: tags,
         resolution: parseResolution(torrentName),
+        releaseGroup: parseReleaseGroup(torrentName),
       };
       const torrents = [torrent];
 

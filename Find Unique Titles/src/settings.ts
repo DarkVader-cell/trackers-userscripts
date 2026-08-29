@@ -3,6 +3,7 @@ const defaultConfig: Settings = {
   useCache: true,
   debug: false,
   sizeDifferenceThreshold: 1.2,
+  skippedReleaseGroups: "",
 };
 
 // Initialize the library
@@ -25,6 +26,11 @@ GM_config.init({
       type: "float",
       default: defaultConfig.sizeDifferenceThreshold,
     },
+    skippedReleaseGroups: {
+      label: "Skip release groups (comma-separated)",
+      type: "text",
+      default: defaultConfig.skippedReleaseGroups,
+    },
     debug: {
       label: "Debug mode",
       type: "checkbox",
@@ -42,8 +48,8 @@ GM_config.init({
     `,
   events: {
     open: function () {
-      GM_config.frame.style.width = "400px"; // Adjust width as needed
-      GM_config.frame.style.height = "250px"; // Adjust width as needed
+      GM_config.frame.style.width = "500px"; // Adjust width as needed
+      GM_config.frame.style.height = "290px"; // Adjust width as needed
       GM_config.frame.style.position = "fixed";
       GM_config.frame.style.left = "50%";
       GM_config.frame.style.top = "50%";
@@ -64,6 +70,7 @@ export const getSettings = (): Settings => {
     useCache: GM_config.get("useCache"),
     debug: GM_config.get("debug"),
     sizeDifferenceThreshold: GM_config.get("sizeDifferenceThreshold"),
+    skippedReleaseGroups: GM_config.get("skippedReleaseGroups"),
   };
 };
 
@@ -72,4 +79,5 @@ interface Settings {
   onlyNewTitles: boolean;
   debug: boolean;
   sizeDifferenceThreshold: number;
+  skippedReleaseGroups: string;
 }

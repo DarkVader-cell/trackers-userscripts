@@ -1,6 +1,7 @@
 import * as trackers from "./trackers";
 import { MetaData, Request, SearchResult, tracker } from "./trackers/tracker";
 import { addToCache, clearMemoryCache, existsInCache } from "./utils/cache";
+import { parseReleaseGroup } from "./utils/utils";
 import {
   addCounter,
   createTrackersSelect,
@@ -30,10 +31,41 @@ const setUpLogger = (debugMode: boolean) => {
   }
 };
 
+const parseSkippedReleaseGroups = (value: string): Set<string> =>
+  new Set(
+    value
+      .split(",")
+      .map((group) => group.trim().toLowerCase())
+      .filter(Boolean)
+  );
+
+const shouldSkipRequest = (
+  request: Request,
+  skippedReleaseGroups: Set<string>
+): boolean => {
+  if (skippedReleaseGroups.size === 0) return false;
+
+  const releaseGroups = request.torrents
+    .map(
+      (torrent) =>
+        torrent.releaseGroup ??
+        parseReleaseGroup(torrent.dom.textContent ?? "")
+    )
+    .filter((group): group is string => Boolean(group));
+
+  return (
+    releaseGroups.length > 0 &&
+    releaseGroups.every((group) => skippedReleaseGroups.has(group.toLowerCase()))
+  );
+};
+
 const main = async function () {
   "use strict";
 
   const settings = getSettings();
+  const skippedReleaseGroups = parseSkippedReleaseGroups(
+    settings.skippedReleaseGroups
+  );
 
   setUpLogger(settings.debug);
 
@@ -80,6 +112,10 @@ const main = async function () {
           request
         );
         try {
+          if (shouldSkipRequest(request, skippedReleaseGroups)) {
+            logger.debug("Skipping release group configured in settings");
+            continue;
+          }
           if (
             settings.useCache &&
             request.imdbId &&

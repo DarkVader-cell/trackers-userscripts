@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name Find Unique Titles
 // @description Find unique titles to cross seed
-// @version 0.0.22
+// @version 0.0.23
 // @author Mea01
 // @match https://aither.cc/torrents?*
 // @match https://avistaz.to/movies*
@@ -58,16 +58,17 @@
     940: (module, __unused_webpack___webpack_exports__, __webpack_require__) => {
       __webpack_require__.a(module, (async (__webpack_handle_async_dependencies__, __webpack_async_result__) => {
         try {
-          var _trackers__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(54);
-          var _trackers_tracker__WEBPACK_IMPORTED_MODULE_6__ = __webpack_require__(84);
-          var _utils_cache__WEBPACK_IMPORTED_MODULE_4__ = __webpack_require__(698);
-          var _utils_dom__WEBPACK_IMPORTED_MODULE_3__ = __webpack_require__(996);
-          var _settings__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(97);
-          var common_dom__WEBPACK_IMPORTED_MODULE_7__ = __webpack_require__(933);
-          var common_http__WEBPACK_IMPORTED_MODULE_5__ = __webpack_require__(257);
+          var _trackers__WEBPACK_IMPORTED_MODULE_3__ = __webpack_require__(54);
+          var _trackers_tracker__WEBPACK_IMPORTED_MODULE_7__ = __webpack_require__(84);
+          var _utils_cache__WEBPACK_IMPORTED_MODULE_5__ = __webpack_require__(698);
+          var _utils_utils__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(657);
+          var _utils_dom__WEBPACK_IMPORTED_MODULE_4__ = __webpack_require__(996);
+          var _settings__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(97);
+          var common_dom__WEBPACK_IMPORTED_MODULE_8__ = __webpack_require__(933);
+          var common_http__WEBPACK_IMPORTED_MODULE_6__ = __webpack_require__(257);
           var common_logger__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(616);
-          var __webpack_async_dependencies__ = __webpack_handle_async_dependencies__([ _trackers__WEBPACK_IMPORTED_MODULE_2__, _utils_cache__WEBPACK_IMPORTED_MODULE_4__ ]);
-          [_trackers__WEBPACK_IMPORTED_MODULE_2__, _utils_cache__WEBPACK_IMPORTED_MODULE_4__] = __webpack_async_dependencies__.then ? (await __webpack_async_dependencies__)() : __webpack_async_dependencies__;
+          var __webpack_async_dependencies__ = __webpack_handle_async_dependencies__([ _trackers__WEBPACK_IMPORTED_MODULE_3__, _utils_cache__WEBPACK_IMPORTED_MODULE_5__ ]);
+          [_trackers__WEBPACK_IMPORTED_MODULE_3__, _utils_cache__WEBPACK_IMPORTED_MODULE_5__] = __webpack_async_dependencies__.then ? (await __webpack_async_dependencies__)() : __webpack_async_dependencies__;
           function hideTorrents(request) {
             for (let element of request.dom) element.style.display = "none";
             for (let torrent of request.torrents) torrent.dom.style.display = "none";
@@ -76,20 +77,28 @@
             common_logger__WEBPACK_IMPORTED_MODULE_0__.k.setPrefix("[Find Unique Titles]");
             if (debugMode) common_logger__WEBPACK_IMPORTED_MODULE_0__.k.setLevel(common_logger__WEBPACK_IMPORTED_MODULE_0__.z.DEBUG);
           };
+          const parseSkippedReleaseGroups = value => new Set(value.split(",").map((group => group.trim().toLowerCase())).filter(Boolean));
+          const shouldSkipRequest = (request, skippedReleaseGroups) => {
+            if (0 === skippedReleaseGroups.size) return false;
+            const releaseGroups = request.torrents.map((torrent => torrent.releaseGroup ?? (0,
+            _utils_utils__WEBPACK_IMPORTED_MODULE_1__.ds)(torrent.dom.textContent ?? ""))).filter((group => Boolean(group)));
+            return releaseGroups.length > 0 && releaseGroups.every((group => skippedReleaseGroups.has(group.toLowerCase())));
+          };
           const main = async function() {
-            const settings = (0, _settings__WEBPACK_IMPORTED_MODULE_1__.G)();
+            const settings = (0, _settings__WEBPACK_IMPORTED_MODULE_2__.G)();
+            const skippedReleaseGroups = parseSkippedReleaseGroups(settings.skippedReleaseGroups);
             setUpLogger(settings.debug);
             common_logger__WEBPACK_IMPORTED_MODULE_0__.k.info("Init User script");
             if (document.getElementById("tracker-select")) return;
             const url = window.location.href;
             let sourceTracker = null;
             let targetTrackers = [];
-            Object.keys(_trackers__WEBPACK_IMPORTED_MODULE_2__).forEach((trackerName => {
-              const trackerImplementation = new _trackers__WEBPACK_IMPORTED_MODULE_2__[trackerName];
+            Object.keys(_trackers__WEBPACK_IMPORTED_MODULE_3__).forEach((trackerName => {
+              const trackerImplementation = new _trackers__WEBPACK_IMPORTED_MODULE_3__[trackerName];
               if (trackerImplementation.canRun(url)) sourceTracker = trackerImplementation; else if (trackerImplementation.canBeUsedAsTarget()) targetTrackers.push(trackerImplementation);
             }));
             if (null == sourceTracker) return;
-            const select = (0, _utils_dom__WEBPACK_IMPORTED_MODULE_3__.WC)(targetTrackers.map((tracker => tracker.name())));
+            const select = (0, _utils_dom__WEBPACK_IMPORTED_MODULE_4__.WC)(targetTrackers.map((tracker => tracker.name())));
             select.addEventListener("change", (async () => {
               let answer = confirm("Start searching new content for:  " + select.value);
               if (answer) {
@@ -98,47 +107,51 @@
                 let newContent = 0;
                 let requestGenerator = sourceTracker.getSearchRequest();
                 const metadata = (await requestGenerator.next()).value;
-                (0, _utils_dom__WEBPACK_IMPORTED_MODULE_3__.X_)();
-                (0, _utils_dom__WEBPACK_IMPORTED_MODULE_3__.I5)(metadata.total);
+                (0, _utils_dom__WEBPACK_IMPORTED_MODULE_4__.X_)();
+                (0, _utils_dom__WEBPACK_IMPORTED_MODULE_4__.I5)(metadata.total);
                 common_logger__WEBPACK_IMPORTED_MODULE_0__.k.debug("[{0}] Parsing titles to check", sourceTracker.name());
                 for await (const item of requestGenerator) {
                   if (null == item) continue;
                   const request = item;
                   common_logger__WEBPACK_IMPORTED_MODULE_0__.k.debug("[{0}] Search request: {1}", sourceTracker.name(), request);
                   try {
-                    if (settings.useCache && request.imdbId && (0, _utils_cache__WEBPACK_IMPORTED_MODULE_4__.ff)(targetTracker.name(), request.imdbId)) {
+                    if (shouldSkipRequest(request, skippedReleaseGroups)) {
+                      common_logger__WEBPACK_IMPORTED_MODULE_0__.k.debug("Skipping release group configured in settings");
+                      continue;
+                    }
+                    if (settings.useCache && request.imdbId && (0, _utils_cache__WEBPACK_IMPORTED_MODULE_5__.ff)(targetTracker.name(), request.imdbId)) {
                       common_logger__WEBPACK_IMPORTED_MODULE_0__.k.debug("Title exists in target tracker, found using cache");
                       hideTorrents(request);
                       continue;
                     }
-                    await (0, common_http__WEBPACK_IMPORTED_MODULE_5__._v)(targetTracker.waitTimeInMillisBetweenRequest());
+                    await (0, common_http__WEBPACK_IMPORTED_MODULE_6__._v)(targetTracker.waitTimeInMillisBetweenRequest());
                     const response = await targetTracker.search(request);
                     common_logger__WEBPACK_IMPORTED_MODULE_0__.k.debug("Search response: {0}", response);
-                    if (response == _trackers_tracker__WEBPACK_IMPORTED_MODULE_6__.lt.EXIST || response == _trackers_tracker__WEBPACK_IMPORTED_MODULE_6__.lt.NOT_ALLOWED) {
-                      if (request.imdbId) await (0, _utils_cache__WEBPACK_IMPORTED_MODULE_4__.se)(targetTracker.name(), request.imdbId);
+                    if (response == _trackers_tracker__WEBPACK_IMPORTED_MODULE_7__.lt.EXIST || response == _trackers_tracker__WEBPACK_IMPORTED_MODULE_7__.lt.NOT_ALLOWED) {
+                      if (request.imdbId) await (0, _utils_cache__WEBPACK_IMPORTED_MODULE_5__.se)(targetTracker.name(), request.imdbId);
                       hideTorrents(request);
-                    } else if (response == _trackers_tracker__WEBPACK_IMPORTED_MODULE_6__.lt.NOT_LOGGED_IN) {
+                    } else if (response == _trackers_tracker__WEBPACK_IMPORTED_MODULE_7__.lt.NOT_LOGGED_IN) {
                       alert(`You are not logged in ${targetTracker.name()}`);
                       break;
                     } else {
                       newContent++;
-                      (0, _utils_dom__WEBPACK_IMPORTED_MODULE_3__.t)(newContent);
-                      if (response == _trackers_tracker__WEBPACK_IMPORTED_MODULE_6__.lt.MAYBE_NOT_EXIST) {
+                      (0, _utils_dom__WEBPACK_IMPORTED_MODULE_4__.t)(newContent);
+                      if (response == _trackers_tracker__WEBPACK_IMPORTED_MODULE_7__.lt.MAYBE_NOT_EXIST) {
                         request.dom[0].setAttribute("title", "Title may not exist on target tracker");
                         request.dom[0].style.border = "2px solid #9b59b6";
-                      } else if (response == _trackers_tracker__WEBPACK_IMPORTED_MODULE_6__.lt.NOT_EXIST_WITH_REQUEST) {
+                      } else if (response == _trackers_tracker__WEBPACK_IMPORTED_MODULE_7__.lt.NOT_EXIST_WITH_REQUEST) {
                         request.dom[0].setAttribute("title", "Title was not found and has matching requests");
                         request.dom[0].style.border = "2px solid #2ecc71";
-                      } else if (response == _trackers_tracker__WEBPACK_IMPORTED_MODULE_6__.lt.MAYBE_NOT_EXIST_WITH_REQUEST) {
+                      } else if (response == _trackers_tracker__WEBPACK_IMPORTED_MODULE_7__.lt.MAYBE_NOT_EXIST_WITH_REQUEST) {
                         request.dom[0].setAttribute("title", "Title may not exists and there are matching requests");
                         request.dom[0].style.border = "2px solid #e67e22";
-                      } else if (response == _trackers_tracker__WEBPACK_IMPORTED_MODULE_6__.lt.NOT_CHECKED) {
+                      } else if (response == _trackers_tracker__WEBPACK_IMPORTED_MODULE_7__.lt.NOT_CHECKED) {
                         request.dom[0].setAttribute("title", "Title was not checked on target tracker");
                         request.dom[0].style.border = "2px solid #e74c3c";
-                      } else if (response == _trackers_tracker__WEBPACK_IMPORTED_MODULE_6__.lt.NOT_EXIST) {
+                      } else if (response == _trackers_tracker__WEBPACK_IMPORTED_MODULE_7__.lt.NOT_EXIST) {
                         request.dom[0].setAttribute("title", "Title was not found on target tracker");
                         request.dom[0].style.border = "2px solid #3498db";
-                      } else if (response == _trackers_tracker__WEBPACK_IMPORTED_MODULE_6__.lt.EXIST_BUT_MISSING_SLOT) {
+                      } else if (response == _trackers_tracker__WEBPACK_IMPORTED_MODULE_7__.lt.EXIST_BUT_MISSING_SLOT) {
                         request.dom[0].setAttribute("title", "Title exists but there is an available slot on target tracker");
                         request.dom[0].style.border = "2px solid #ff00ff";
                       }
@@ -149,17 +162,17 @@
                     request.dom[0].setAttribute("title", "Title was not checked due to an error");
                     request.dom[0].style.border = "2px solid red";
                   } finally {
-                    (0, _utils_dom__WEBPACK_IMPORTED_MODULE_3__.tx)(i++);
+                    (0, _utils_dom__WEBPACK_IMPORTED_MODULE_4__.tx)(i++);
                   }
                 }
-                (0, _utils_cache__WEBPACK_IMPORTED_MODULE_4__.sA)();
+                (0, _utils_cache__WEBPACK_IMPORTED_MODULE_5__.sA)();
               }
             }));
             sourceTracker.insertTrackersSelect(select);
           };
-          (0, common_dom__WEBPACK_IMPORTED_MODULE_7__.$f)();
+          (0, common_dom__WEBPACK_IMPORTED_MODULE_8__.$f)();
           main().catch((e => {
-            (0, common_dom__WEBPACK_IMPORTED_MODULE_7__.x2)(e.message);
+            (0, common_dom__WEBPACK_IMPORTED_MODULE_8__.x2)(e.message);
           }));
           let currentUrl = document.location.href;
           const observer = new MutationObserver((async () => {
@@ -187,7 +200,8 @@
         onlyNewTitles: false,
         useCache: true,
         debug: false,
-        sizeDifferenceThreshold: 1.2
+        sizeDifferenceThreshold: 1.2,
+        skippedReleaseGroups: ""
       };
       GM_config.init({
         id: "find-unique-titles-settings",
@@ -208,6 +222,11 @@
             type: "float",
             default: defaultConfig.sizeDifferenceThreshold
           },
+          skippedReleaseGroups: {
+            label: "Skip release groups (comma-separated)",
+            type: "text",
+            default: defaultConfig.skippedReleaseGroups
+          },
           debug: {
             label: "Debug mode",
             type: "checkbox",
@@ -217,8 +236,8 @@
         css: "\n        #find-unique-titles-settings {\n        }\n        #find-unique-titles-settings .config_var {\n            display: flex;\n            align-items: center;\n            justify-content: space-between;\n        }\n    ",
         events: {
           open: function() {
-            GM_config.frame.style.width = "400px";
-            GM_config.frame.style.height = "250px";
+            GM_config.frame.style.width = "500px";
+            GM_config.frame.style.height = "290px";
             GM_config.frame.style.position = "fixed";
             GM_config.frame.style.left = "50%";
             GM_config.frame.style.top = "50%";
@@ -234,7 +253,8 @@
         onlyNewTitles: GM_config.get("onlyNewTitles"),
         useCache: GM_config.get("useCache"),
         debug: GM_config.get("debug"),
-        sizeDifferenceThreshold: GM_config.get("sizeDifferenceThreshold")
+        sizeDifferenceThreshold: GM_config.get("sizeDifferenceThreshold"),
+        skippedReleaseGroups: GM_config.get("skippedReleaseGroups")
       });
     },
     387: (__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
@@ -454,7 +474,8 @@
             dom: element,
             size: (0, _utils_utils__WEBPACK_IMPORTED_MODULE_0__._8)(sizeText),
             tags,
-            resolution: (0, _utils_utils__WEBPACK_IMPORTED_MODULE_0__.uV)(torrentName)
+            resolution: (0, _utils_utils__WEBPACK_IMPORTED_MODULE_0__.uV)(torrentName),
+            releaseGroup: (0, _utils_utils__WEBPACK_IMPORTED_MODULE_0__.ds)(torrentName)
           };
           const torrents = [ torrent ];
           const request = {
@@ -1453,7 +1474,7 @@
           return _tracker__WEBPACK_IMPORTED_MODULE_0__.lt.NOT_CHECKED;
         }
         insertTrackersSelect(select) {
-          if (window.location.toString().indexOf("/filter") > -1) (0, common_dom__WEBPACK_IMPORTED_MODULE_5__.U_)(document.querySelector("ul.pagination"), select); else (0, 
+          if (window.location.toString().indexOf("/filter") > -1) (0, common_dom__WEBPACK_IMPORTED_MODULE_5__.U_)(document.querySelector("ul.pagination"), select); else (0,
           common_dom__WEBPACK_IMPORTED_MODULE_5__.U_)(document.querySelector(".form-torrent-search"), select);
         }
       }
@@ -1896,7 +1917,7 @@
         }
         async search(request) {
           let result;
-          if (request.category == _tracker__WEBPACK_IMPORTED_MODULE_0__.WD.MOVIE) result = await (0, 
+          if (request.category == _tracker__WEBPACK_IMPORTED_MODULE_0__.WD.MOVIE) result = await (0,
           common_searcher__WEBPACK_IMPORTED_MODULE_3__.yC)(common_trackers__WEBPACK_IMPORTED_MODULE_4__.FvT, {
             movie_title: request.title
           }); else result = await (0, common_searcher__WEBPACK_IMPORTED_MODULE_3__.yC)(common_trackers__WEBPACK_IMPORTED_MODULE_4__.YE3, {
@@ -2557,7 +2578,7 @@
             const category = parseCategory(element);
             let title;
             let year;
-            if (category == _tracker__WEBPACK_IMPORTED_MODULE_0__.WD.MOVIE) ({title, year} = (0, 
+            if (category == _tracker__WEBPACK_IMPORTED_MODULE_0__.WD.MOVIE) ({title, year} = (0,
             _utils_utils__WEBPACK_IMPORTED_MODULE_2__.GC)(element.querySelector(".name a").childNodes[0].textContent));
             const request = {
               torrents: [ {
@@ -3777,9 +3798,9 @@
     __webpack_modules__[moduleId](module, module.exports, __webpack_require__);
     return module.exports;
   }
-  webpackQueues = "function" == typeof Symbol ? Symbol("webpack queues") : "__webpack_queues__", 
-  webpackExports = "function" == typeof Symbol ? Symbol("webpack exports") : "__webpack_exports__", 
-  webpackError = "function" == typeof Symbol ? Symbol("webpack error") : "__webpack_error__", 
+  webpackQueues = "function" == typeof Symbol ? Symbol("webpack queues") : "__webpack_queues__",
+  webpackExports = "function" == typeof Symbol ? Symbol("webpack exports") : "__webpack_exports__",
+  webpackError = "function" == typeof Symbol ? Symbol("webpack error") : "__webpack_error__",
   resolveQueue = queue => {
     if (queue && !queue.d) {
       queue.d = 1;
@@ -3833,12 +3854,12 @@
       var promise = new Promise((resolve => {
         fn = () => resolve(getResult);
         fn.r = 0;
-        var fnQueue = q => q !== queue && !depQueues.has(q) && (depQueues.add(q), q && !q.d && (fn.r++, 
+        var fnQueue = q => q !== queue && !depQueues.has(q) && (depQueues.add(q), q && !q.d && (fn.r++,
         q.push(fn)));
         currentDeps.map((dep => dep[webpackQueues](fnQueue)));
       }));
       return fn.r ? promise : getResult();
-    }), (err => (err ? reject(promise[webpackError] = err) : outerResolve(exports), 
+    }), (err => (err ? reject(promise[webpackError] = err) : outerResolve(exports),
     resolveQueue(queue))));
     queue && (queue.d = 0);
   };
