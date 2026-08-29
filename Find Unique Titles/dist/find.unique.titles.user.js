@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name Find Unique Titles
 // @description Find unique titles to cross seed
-// @version 0.0.17
+// @version 0.0.18
 // @author Mea01
 // @match https://aither.cc/torrents?*
 // @match https://avistaz.to/movies*
@@ -241,10 +241,10 @@
       __webpack_require__.d(__webpack_exports__, {
         Z: () => Aither
       });
-      var _utils_utils__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(657);
+      var _utils_utils__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(657);
       var _tracker__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(84);
       var common_dom__WEBPACK_IMPORTED_MODULE_3__ = __webpack_require__(933);
-      var common_http__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(257);
+      var common_http__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(257);
       const parseCategory = element => {
         const categoryLink = element.querySelector(".torrent__category-link");
         if (!categoryLink) return;
@@ -252,6 +252,27 @@
         if ("TV" == categoryName) return _tracker__WEBPACK_IMPORTED_MODULE_0__.WD.TV;
         if ("Movie" == categoryName) return _tracker__WEBPACK_IMPORTED_MODULE_0__.WD.MOVIE;
         return;
+      };
+      const VIDEO_SOURCES = [ "Remux", "WEB-DL", "WEBRip", "BluRay", "DVD" ];
+      const videoSource = torrent => torrent.tags?.find((tag => VIDEO_SOURCES.includes(tag)));
+      const hasSameSlot = (source, target) => {
+        const sourceType = videoSource(source);
+        const targetType = videoSource(target);
+        return !(void 0 === sourceType || sourceType !== targetType || source.resolution && target.resolution && source.resolution !== target.resolution);
+      };
+      const parseSearchTorrents = result => {
+        const rows = Array.from(result.querySelectorAll("article.torrent-search-row, .torrent-search--list tbody tr"));
+        return rows.flatMap((row => {
+          const name = row.querySelector(".torrent-search--list__name")?.textContent;
+          if (!name) return [];
+          const size = (0, _utils_utils__WEBPACK_IMPORTED_MODULE_1__._8)(row.querySelector(".torrent-search--list__size")?.textContent?.trim() ?? "");
+          return [ {
+            dom: row,
+            size,
+            tags: (0, _utils_utils__WEBPACK_IMPORTED_MODULE_1__.RN)(name),
+            resolution: (0, _utils_utils__WEBPACK_IMPORTED_MODULE_1__.uV)(name)
+          } ];
+        }));
       };
       class Aither extends _tracker__WEBPACK_IMPORTED_MODULE_0__.xw {
         canBeUsedAsSource() {
@@ -271,18 +292,18 @@
           for (let element of elements) {
             let linkElement = element.querySelector(".torrent-search--list__name");
             const link = linkElement.href;
-            let response = await (0, common_http__WEBPACK_IMPORTED_MODULE_1__.uU)(link);
-            const imdbId = (0, _utils_utils__WEBPACK_IMPORTED_MODULE_2__.VB)(response);
+            let response = await (0, common_http__WEBPACK_IMPORTED_MODULE_2__.uU)(link);
+            const imdbId = (0, _utils_utils__WEBPACK_IMPORTED_MODULE_1__.VB)(response);
             const category = parseCategory(response);
             let torrentName = linkElement.textContent.trim();
-            const {title, year} = (0, _utils_utils__WEBPACK_IMPORTED_MODULE_2__.GC)(torrentName);
-            let size = (0, _utils_utils__WEBPACK_IMPORTED_MODULE_2__._8)(element.querySelector(".torrent-search--list__size").textContent.trim());
+            const {title, year} = (0, _utils_utils__WEBPACK_IMPORTED_MODULE_1__.GC)(torrentName);
+            let size = (0, _utils_utils__WEBPACK_IMPORTED_MODULE_1__._8)(element.querySelector(".torrent-search--list__size").textContent.trim());
             const request = {
               torrents: [ {
                 size,
-                tags: (0, _utils_utils__WEBPACK_IMPORTED_MODULE_2__.RN)(torrentName),
+                tags: (0, _utils_utils__WEBPACK_IMPORTED_MODULE_1__.RN)(torrentName),
                 dom: element,
-                resolution: (0, _utils_utils__WEBPACK_IMPORTED_MODULE_2__.uV)(torrentName)
+                resolution: (0, _utils_utils__WEBPACK_IMPORTED_MODULE_1__.uV)(torrentName)
               } ],
               dom: [ element ],
               imdbId,
@@ -299,9 +320,13 @@
         async search(request) {
           if (request.category !== _tracker__WEBPACK_IMPORTED_MODULE_0__.WD.MOVIE && request.category !== _tracker__WEBPACK_IMPORTED_MODULE_0__.WD.TV) return _tracker__WEBPACK_IMPORTED_MODULE_0__.lt.NOT_CHECKED;
           if (!request.imdbId) return _tracker__WEBPACK_IMPORTED_MODULE_0__.lt.NOT_CHECKED;
-          const result = await (0, common_http__WEBPACK_IMPORTED_MODULE_1__.uU)(`https://aither.cc/torrents?imdbId=${request.imdbId.substring(2)}`);
+          const result = await (0, common_http__WEBPACK_IMPORTED_MODULE_2__.uU)(`https://aither.cc/torrents?imdbId=${request.imdbId.substring(2)}`);
           if (/forgot your password|login/i.test(result.textContent ?? "")) return _tracker__WEBPACK_IMPORTED_MODULE_0__.lt.NOT_LOGGED_IN;
-          return result.querySelector("article.torrent-search-row, .torrent-search--list__overview, .torrent-search--list tbody tr") ? _tracker__WEBPACK_IMPORTED_MODULE_0__.lt.EXIST : _tracker__WEBPACK_IMPORTED_MODULE_0__.lt.NOT_EXIST;
+          const hasTitle = result.querySelector("article.torrent-search-row, .torrent-search--list__overview, .torrent-search--list tbody tr");
+          if (!hasTitle) return _tracker__WEBPACK_IMPORTED_MODULE_0__.lt.NOT_EXIST;
+          const targetTorrents = parseSearchTorrents(result);
+          const hasMissingSlot = request.torrents.some((sourceTorrent => void 0 !== videoSource(sourceTorrent) && !targetTorrents.some((targetTorrent => hasSameSlot(sourceTorrent, targetTorrent)))));
+          return hasMissingSlot ? _tracker__WEBPACK_IMPORTED_MODULE_0__.lt.EXIST_BUT_MISSING_SLOT : _tracker__WEBPACK_IMPORTED_MODULE_0__.lt.EXIST;
         }
         waitTimeInMillisBetweenRequest() {
           return 300;
@@ -3229,6 +3254,10 @@
         const tags = [];
         if (!title) return tags;
         if (title.toLowerCase().includes("remux")) tags.push("Remux");
+        if (/\bweb[ ._-]?dl\b/i.test(title)) tags.push("WEB-DL");
+        if (/\bweb[ ._-]?rip\b/i.test(title)) tags.push("WEBRip");
+        if (/\bblu[ ._-]?ray\b|\bbdrip\b/i.test(title)) tags.push("BluRay");
+        if (/\b(?:dvd|dvdrip)\b/i.test(title)) tags.push("DVD");
         if (title.replaceAll(new RegExp("HDRip", "gi"), "").includes("HDR")) tags.push("HDR");
         if (title.includes("DV")) tags.push("DV");
         return tags;

@@ -11,6 +11,7 @@ import {
   MetaData,
   Request,
   SearchResult,
+  Torrent,
 } from "./tracker";
 import { addChild, insertAfter } from "common/dom";
 import { fetchAndParseHtml } from "common/http";
@@ -26,6 +27,51 @@ const parseCategory = (element: HTMLElement): Category | undefined => {
 
   return undefined;
 };
+
+const VIDEO_SOURCES = ["Remux", "WEB-DL", "WEBRip", "BluRay", "DVD"];
+
+const videoSource = (torrent: Torrent): string | undefined =>
+  torrent.tags?.find((tag) => VIDEO_SOURCES.includes(tag));
+
+const hasSameSlot = (source: Torrent, target: Torrent): boolean => {
+  const sourceType = videoSource(source);
+  const targetType = videoSource(target);
+
+  return (
+    sourceType !== undefined &&
+    sourceType === targetType &&
+    (!source.resolution ||
+      !target.resolution ||
+      source.resolution === target.resolution)
+  );
+};
+
+const parseSearchTorrents = (result: HTMLElement): Torrent[] => {
+  const rows = Array.from(
+    result.querySelectorAll<HTMLElement>(
+      "article.torrent-search-row, .torrent-search--list tbody tr"
+    )
+  );
+
+  return rows.flatMap((row) => {
+    const name = row.querySelector(".torrent-search--list__name")?.textContent;
+    if (!name) return [];
+
+    const size = parseSize(
+      row.querySelector(".torrent-search--list__size")?.textContent?.trim() ??
+        ""
+    );
+    return [
+      {
+        dom: row,
+        size,
+        tags: parseTags(name),
+        resolution: parseResolution(name),
+      },
+    ];
+  });
+};
+
 export default class Aither extends AbstractTracker {
   canBeUsedAsSource(): boolean {
     return true;
@@ -94,11 +140,23 @@ export default class Aither extends AbstractTracker {
     if (/forgot your password|login/i.test(result.textContent ?? ""))
       return SearchResult.NOT_LOGGED_IN;
 
-    return result.querySelector(
+    const hasTitle = result.querySelector(
       "article.torrent-search-row, .torrent-search--list__overview, .torrent-search--list tbody tr"
-    )
-      ? SearchResult.EXIST
-      : SearchResult.NOT_EXIST;
+    );
+    if (!hasTitle) return SearchResult.NOT_EXIST;
+
+    const targetTorrents = parseSearchTorrents(result);
+    const hasMissingSlot = request.torrents.some(
+      (sourceTorrent) =>
+        videoSource(sourceTorrent) !== undefined &&
+        !targetTorrents.some((targetTorrent) =>
+          hasSameSlot(sourceTorrent, targetTorrent)
+        )
+    );
+
+    return hasMissingSlot
+      ? SearchResult.EXIST_BUT_MISSING_SLOT
+      : SearchResult.EXIST;
   }
 
   waitTimeInMillisBetweenRequest(): number {
