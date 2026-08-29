@@ -112,7 +112,9 @@ export const parseTags = (title: string) => {
   if (!title) return tags;
   if (title.toLowerCase().includes("remux")) tags.push("Remux");
   if (/\bweb[ ._-]?dl\b/i.test(title)) tags.push("WEB-DL");
-  if (/\bweb[ ._-]?rip\b/i.test(title)) tags.push("WEBRip");
+  else if (/\bweb[ ._-]?rip\b/i.test(title)) tags.push("WEBRip");
+  // Aither labels some WEB-DL uploads simply as "WEB" in its result rows.
+  else if (/\bweb\b/i.test(title)) tags.push("WEB-DL");
   if (/\bblu[ ._-]?ray\b|\bbdrip\b/i.test(title)) tags.push("BluRay");
   if (/\b(?:dvd|dvdrip)\b/i.test(title)) tags.push("DVD");
   if (title.replaceAll(new RegExp("HDRip", "gi"), "").includes("HDR"))

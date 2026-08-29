@@ -153,6 +153,10 @@ export default class Aither extends AbstractTracker {
     const targetTorrents = parseSearchTorrents(result);
     const hasMissingSlot = request.torrents.some(
       (sourceTorrent) =>
+        targetTorrents.length > 0 &&
+        targetTorrents.every(
+          (targetTorrent) => videoSource(targetTorrent) !== undefined
+        ) &&
         videoSource(sourceTorrent) !== undefined &&
         !targetTorrents.some((targetTorrent) =>
           hasSameSlot(sourceTorrent, targetTorrent)

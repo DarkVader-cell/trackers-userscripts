@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name Find Unique Titles
 // @description Find unique titles to cross seed
-// @version 0.0.19
+// @version 0.0.20
 // @author Mea01
 // @match https://aither.cc/torrents?*
 // @match https://avistaz.to/movies*
@@ -325,7 +325,7 @@
           const hasTitle = result.querySelector("article.torrent-search-row, .torrent-search--list__overview, .torrent-search--list tbody tr");
           if (!hasTitle) return _tracker__WEBPACK_IMPORTED_MODULE_0__.lt.NOT_EXIST;
           const targetTorrents = parseSearchTorrents(result);
-          const hasMissingSlot = request.torrents.some((sourceTorrent => void 0 !== videoSource(sourceTorrent) && !targetTorrents.some((targetTorrent => hasSameSlot(sourceTorrent, targetTorrent)))));
+          const hasMissingSlot = request.torrents.some((sourceTorrent => targetTorrents.length > 0 && targetTorrents.every((targetTorrent => void 0 !== videoSource(targetTorrent))) && void 0 !== videoSource(sourceTorrent) && !targetTorrents.some((targetTorrent => hasSameSlot(sourceTorrent, targetTorrent)))));
           return hasMissingSlot ? _tracker__WEBPACK_IMPORTED_MODULE_0__.lt.EXIST_BUT_MISSING_SLOT : _tracker__WEBPACK_IMPORTED_MODULE_0__.lt.EXIST;
         }
         waitTimeInMillisBetweenRequest() {
@@ -3254,8 +3254,7 @@
         const tags = [];
         if (!title) return tags;
         if (title.toLowerCase().includes("remux")) tags.push("Remux");
-        if (/\bweb[ ._-]?dl\b/i.test(title)) tags.push("WEB-DL");
-        if (/\bweb[ ._-]?rip\b/i.test(title)) tags.push("WEBRip");
+        if (/\bweb[ ._-]?dl\b/i.test(title)) tags.push("WEB-DL"); else if (/\bweb[ ._-]?rip\b/i.test(title)) tags.push("WEBRip"); else if (/\bweb\b/i.test(title)) tags.push("WEB-DL");
         if (/\bblu[ ._-]?ray\b|\bbdrip\b/i.test(title)) tags.push("BluRay");
         if (/\b(?:dvd|dvdrip)\b/i.test(title)) tags.push("DVD");
         if (title.replaceAll(new RegExp("HDRip", "gi"), "").includes("HDR")) tags.push("HDR");
