@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name Find Unique Titles
 // @description Find unique titles to cross seed
-// @version 0.0.23
+// @version 0.0.24
 // @author Mea01
 // @match https://aither.cc/torrents?*
 // @match https://avistaz.to/movies*
@@ -70,8 +70,8 @@
           var __webpack_async_dependencies__ = __webpack_handle_async_dependencies__([ _trackers__WEBPACK_IMPORTED_MODULE_3__, _utils_cache__WEBPACK_IMPORTED_MODULE_5__ ]);
           [_trackers__WEBPACK_IMPORTED_MODULE_3__, _utils_cache__WEBPACK_IMPORTED_MODULE_5__] = __webpack_async_dependencies__.then ? (await __webpack_async_dependencies__)() : __webpack_async_dependencies__;
           function hideTorrents(request) {
-            for (let element of request.dom) element.style.display = "none";
-            for (let torrent of request.torrents) torrent.dom.style.display = "none";
+            const elements = new Set([ ...request.dom, ...request.torrents.map((torrent => torrent.dom)) ]);
+            for (let element of elements) element.style.display = "none";
           }
           const setUpLogger = debugMode => {
             common_logger__WEBPACK_IMPORTED_MODULE_0__.k.setPrefix("[Find Unique Titles]");
@@ -117,6 +117,7 @@
                   try {
                     if (shouldSkipRequest(request, skippedReleaseGroups)) {
                       common_logger__WEBPACK_IMPORTED_MODULE_0__.k.debug("Skipping release group configured in settings");
+                      hideTorrents(request);
                       continue;
                     }
                     if (settings.useCache && request.imdbId && (0, _utils_cache__WEBPACK_IMPORTED_MODULE_5__.ff)(targetTracker.name(), request.imdbId)) {
@@ -175,8 +176,12 @@
             (0, common_dom__WEBPACK_IMPORTED_MODULE_8__.x2)(e.message);
           }));
           let currentUrl = document.location.href;
-          const observer = new MutationObserver((async () => {
-            if (document.location.href !== currentUrl) await main();
+          const observer = new MutationObserver((() => {
+            const nextUrl = document.location.href;
+            if (nextUrl !== currentUrl) {
+              currentUrl = nextUrl;
+              main();
+            }
           }));
           const config = {
             subtree: true,

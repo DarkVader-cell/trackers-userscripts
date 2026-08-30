@@ -16,11 +16,12 @@ import { sleep } from "common/http";
 import { LEVEL, logger } from "common/logger";
 
 function hideTorrents(request: Request) {
-  for (let element of request.dom) {
+  const elements = new Set([
+    ...request.dom,
+    ...request.torrents.map((torrent) => torrent.dom),
+  ]);
+  for (let element of elements) {
     element.style.display = "none";
-  }
-  for (let torrent of request.torrents) {
-    torrent.dom.style.display = "none";
   }
 }
 
@@ -114,6 +115,7 @@ const main = async function () {
         try {
           if (shouldSkipRequest(request, skippedReleaseGroups)) {
             logger.debug("Skipping release group configured in settings");
+            hideTorrents(request);
             continue;
           }
           if (
@@ -204,9 +206,11 @@ main().catch((e) => {
 });
 
 let currentUrl = document.location.href;
-const observer = new MutationObserver(async () => {
-  if (document.location.href !== currentUrl) {
-    await main();
+const observer = new MutationObserver(() => {
+  const nextUrl = document.location.href;
+  if (nextUrl !== currentUrl) {
+    currentUrl = nextUrl;
+    void main();
   }
 });
 
