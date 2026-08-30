@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name Find Unique Titles
 // @description Find unique titles to cross seed
-// @version 0.0.24
+// @version 0.0.25
 // @author Mea01
 // @match https://aither.cc/torrents?*
 // @match https://avistaz.to/movies*
@@ -78,11 +78,19 @@
             if (debugMode) common_logger__WEBPACK_IMPORTED_MODULE_0__.k.setLevel(common_logger__WEBPACK_IMPORTED_MODULE_0__.z.DEBUG);
           };
           const parseSkippedReleaseGroups = value => new Set(value.split(",").map((group => group.trim().toLowerCase())).filter(Boolean));
-          const shouldSkipRequest = (request, skippedReleaseGroups) => {
-            if (0 === skippedReleaseGroups.size) return false;
+          const WEB_RELEASE = /\bweb(?:[ ._-]?(?:dl|rip))?\b/i;
+          const KNOWN_STREAMING_PROVIDER = /(?:^|[ ._-])(?:amzn|nf|dsnp|atv|atvp|hmax|hulu|pmtp|pcok|cr|hidi|vmeo|all4|ip|bcore|dscp|hbo|sho|stan|tubi|viap|roku|fod|viki|viu|mubi|kanopy)(?=$|[ ._-])/i;
+          const PROVIDER_IMMEDIATELY_BEFORE_WEB = /\b(?:ma|max|now|it)\b(?=[ ._-]+web(?:[ ._-]?(?:dl|rip))?\b)/i;
+          const hasKnownStreamingProvider = title => KNOWN_STREAMING_PROVIDER.test(title) || PROVIDER_IMMEDIATELY_BEFORE_WEB.test(title);
+          const hasUnknownStreamingProvider = request => request.torrents.length > 0 && request.torrents.every((torrent => {
+            const title = torrent.dom.textContent ?? "";
+            return WEB_RELEASE.test(title) && !hasKnownStreamingProvider(title);
+          }));
+          const shouldSkipRequest = (request, skippedReleaseGroups, skipUnknownStreamingProviders) => {
             const releaseGroups = request.torrents.map((torrent => torrent.releaseGroup ?? (0,
             _utils_utils__WEBPACK_IMPORTED_MODULE_1__.ds)(torrent.dom.textContent ?? ""))).filter((group => Boolean(group)));
-            return releaseGroups.length > 0 && releaseGroups.every((group => skippedReleaseGroups.has(group.toLowerCase())));
+            const hasSkippedReleaseGroup = releaseGroups.length > 0 && releaseGroups.every((group => skippedReleaseGroups.has(group.toLowerCase())));
+            return hasSkippedReleaseGroup || skipUnknownStreamingProviders && hasUnknownStreamingProvider(request);
           };
           const main = async function() {
             const settings = (0, _settings__WEBPACK_IMPORTED_MODULE_2__.G)();
@@ -115,8 +123,8 @@
                   const request = item;
                   common_logger__WEBPACK_IMPORTED_MODULE_0__.k.debug("[{0}] Search request: {1}", sourceTracker.name(), request);
                   try {
-                    if (shouldSkipRequest(request, skippedReleaseGroups)) {
-                      common_logger__WEBPACK_IMPORTED_MODULE_0__.k.debug("Skipping release group configured in settings");
+                    if (shouldSkipRequest(request, skippedReleaseGroups, settings.skipUnknownStreamingProviders)) {
+                      common_logger__WEBPACK_IMPORTED_MODULE_0__.k.debug("Skipping title configured in settings");
                       hideTorrents(request);
                       continue;
                     }
@@ -206,7 +214,8 @@
         useCache: true,
         debug: false,
         sizeDifferenceThreshold: 1.2,
-        skippedReleaseGroups: ""
+        skippedReleaseGroups: "",
+        skipUnknownStreamingProviders: false
       };
       GM_config.init({
         id: "find-unique-titles-settings",
@@ -232,6 +241,11 @@
             type: "text",
             default: defaultConfig.skippedReleaseGroups
           },
+          skipUnknownStreamingProviders: {
+            label: "Hide WEB releases with unknown streaming provider",
+            type: "checkbox",
+            default: defaultConfig.skipUnknownStreamingProviders
+          },
           debug: {
             label: "Debug mode",
             type: "checkbox",
@@ -242,7 +256,7 @@
         events: {
           open: function() {
             GM_config.frame.style.width = "500px";
-            GM_config.frame.style.height = "290px";
+            GM_config.frame.style.height = "320px";
             GM_config.frame.style.position = "fixed";
             GM_config.frame.style.left = "50%";
             GM_config.frame.style.top = "50%";
@@ -259,7 +273,8 @@
         useCache: GM_config.get("useCache"),
         debug: GM_config.get("debug"),
         sizeDifferenceThreshold: GM_config.get("sizeDifferenceThreshold"),
-        skippedReleaseGroups: GM_config.get("skippedReleaseGroups")
+        skippedReleaseGroups: GM_config.get("skippedReleaseGroups"),
+        skipUnknownStreamingProviders: GM_config.get("skipUnknownStreamingProviders")
       });
     },
     387: (__unused_webpack_module, __webpack_exports__, __webpack_require__) => {

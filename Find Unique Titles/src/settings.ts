@@ -4,6 +4,7 @@ const defaultConfig: Settings = {
   debug: false,
   sizeDifferenceThreshold: 1.2,
   skippedReleaseGroups: "",
+  skipUnknownStreamingProviders: false,
 };
 
 // Initialize the library
@@ -31,6 +32,11 @@ GM_config.init({
       type: "text",
       default: defaultConfig.skippedReleaseGroups,
     },
+    skipUnknownStreamingProviders: {
+      label: "Hide WEB releases with unknown streaming provider",
+      type: "checkbox",
+      default: defaultConfig.skipUnknownStreamingProviders,
+    },
     debug: {
       label: "Debug mode",
       type: "checkbox",
@@ -49,7 +55,7 @@ GM_config.init({
   events: {
     open: function () {
       GM_config.frame.style.width = "500px"; // Adjust width as needed
-      GM_config.frame.style.height = "290px"; // Adjust width as needed
+      GM_config.frame.style.height = "320px"; // Adjust width as needed
       GM_config.frame.style.position = "fixed";
       GM_config.frame.style.left = "50%";
       GM_config.frame.style.top = "50%";
@@ -71,6 +77,9 @@ export const getSettings = (): Settings => {
     debug: GM_config.get("debug"),
     sizeDifferenceThreshold: GM_config.get("sizeDifferenceThreshold"),
     skippedReleaseGroups: GM_config.get("skippedReleaseGroups"),
+    skipUnknownStreamingProviders: GM_config.get(
+      "skipUnknownStreamingProviders"
+    ),
   };
 };
 
@@ -80,4 +89,5 @@ interface Settings {
   debug: boolean;
   sizeDifferenceThreshold: number;
   skippedReleaseGroups: string;
+  skipUnknownStreamingProviders: boolean;
 }

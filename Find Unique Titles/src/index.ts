@@ -40,12 +40,28 @@ const parseSkippedReleaseGroups = (value: string): Set<string> =>
       .filter(Boolean)
   );
 
+const WEB_RELEASE = /\bweb(?:[ ._-]?(?:dl|rip))?\b/i;
+const KNOWN_STREAMING_PROVIDER =
+  /(?:^|[ ._-])(?:amzn|nf|dsnp|atv|atvp|hmax|hulu|pmtp|pcok|cr|hidi|vmeo|all4|ip|bcore|dscp|hbo|sho|stan|tubi|viap|roku|fod|viki|viu|mubi|kanopy)(?=$|[ ._-])/i;
+const PROVIDER_IMMEDIATELY_BEFORE_WEB =
+  /\b(?:ma|max|now|it)\b(?=[ ._-]+web(?:[ ._-]?(?:dl|rip))?\b)/i;
+
+const hasKnownStreamingProvider = (title: string): boolean =>
+  KNOWN_STREAMING_PROVIDER.test(title) ||
+  PROVIDER_IMMEDIATELY_BEFORE_WEB.test(title);
+
+const hasUnknownStreamingProvider = (request: Request): boolean =>
+  request.torrents.length > 0 &&
+  request.torrents.every((torrent) => {
+    const title = torrent.dom.textContent ?? "";
+    return WEB_RELEASE.test(title) && !hasKnownStreamingProvider(title);
+  });
+
 const shouldSkipRequest = (
   request: Request,
-  skippedReleaseGroups: Set<string>
+  skippedReleaseGroups: Set<string>,
+  skipUnknownStreamingProviders: boolean
 ): boolean => {
-  if (skippedReleaseGroups.size === 0) return false;
-
   const releaseGroups = request.torrents
     .map(
       (torrent) =>
@@ -54,9 +70,13 @@ const shouldSkipRequest = (
     )
     .filter((group): group is string => Boolean(group));
 
-  return (
+  const hasSkippedReleaseGroup =
     releaseGroups.length > 0 &&
-    releaseGroups.every((group) => skippedReleaseGroups.has(group.toLowerCase()))
+    releaseGroups.every((group) => skippedReleaseGroups.has(group.toLowerCase()));
+
+  return (
+    hasSkippedReleaseGroup ||
+    (skipUnknownStreamingProviders && hasUnknownStreamingProvider(request))
   );
 };
 
@@ -113,8 +133,14 @@ const main = async function () {
           request
         );
         try {
-          if (shouldSkipRequest(request, skippedReleaseGroups)) {
-            logger.debug("Skipping release group configured in settings");
+          if (
+            shouldSkipRequest(
+              request,
+              skippedReleaseGroups,
+              settings.skipUnknownStreamingProviders
+            )
+          ) {
+            logger.debug("Skipping title configured in settings");
             hideTorrents(request);
             continue;
           }
