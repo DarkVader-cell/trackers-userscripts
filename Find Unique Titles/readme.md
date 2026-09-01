@@ -10,6 +10,11 @@ paste the content of the file `dist/find.unique.titles.user.js`.
 You can generate it by running run `npm run dev`.
 
 # Changelog
+## 0.0.27
+- Add configurable action limits, confirmation, cooldown, and stop-on-error safeguards.
+- Add in-page automation status, Settings, and Stop controls.
+- Prevent a login failure from continuing to the next page.
+
 ## 0.0.26
 - Add optional page-by-page automation for source listings that use `page=`.
 - Add optional actions for confirmed unique torrents: Download torrent, Rescue torrent,

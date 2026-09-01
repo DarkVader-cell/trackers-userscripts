@@ -17,17 +17,40 @@ export interface AutomationSettings {
   qBittorrentPassword: string;
   quiUrl: string;
   quiApiKey: string;
+  enableActionCooldown: boolean;
+  actionCooldownMs: number;
+  maxActionsPerPage: number;
+  confirmBeforeActions: boolean;
+  stopOnActionError: boolean;
 }
 
 interface AutomationRun {
   targetTrackerName: string;
   pagesProcessed: number;
+  nextPageUrl?: string;
 }
 
 const RUN_KEY = "find-unique-titles-automation-run";
 const DOWNLOAD_TEXT = /\bdownload(?:\s+(?:the\s+)?torrent)?\b/i;
 const RESCUE_TEXT = /\brescue(?:\s+(?:the\s+)?torrent)?\b/i;
 const RAINDROP_TEXT = /raindrop/i;
+
+const normalizeNonNegativeInteger = (value: unknown): number =>
+  Math.max(0, Math.trunc(Number(value) || 0));
+
+export const getActionCooldownMs = (settings: AutomationSettings): number =>
+  settings.enableActionCooldown
+    ? Math.min(
+        60_000,
+        Math.max(250, normalizeNonNegativeInteger(settings.actionCooldownMs))
+      )
+    : 0;
+
+export const getMaxActionsPerPage = (settings: AutomationSettings): number =>
+  normalizeNonNegativeInteger(settings.maxActionsPerPage);
+
+const wait = (milliseconds: number): Promise<void> =>
+  new Promise((resolve) => window.setTimeout(resolve, milliseconds));
 
 const elementText = (element: Element): string =>
   [
@@ -49,7 +72,9 @@ const actionPattern = (action: TorrentAction): RegExp | null => {
 };
 
 const actionRoots = (torrent: Torrent, request: Request): HTMLElement[] =>
-  Array.from(new Set([torrent.dom, ...request.dom]));
+  request.torrents.length === 1
+    ? Array.from(new Set([torrent.dom, ...request.dom]))
+    : [torrent.dom];
 
 const findActionElement = (
   torrent: Torrent,
@@ -90,12 +115,9 @@ const findDownloadUrl = (torrent: Torrent, request: Request): string | null => {
 };
 
 const sendToQbittorrentPaused = async (
-  torrent: Torrent,
-  request: Request,
+  downloadUrl: string,
   settings: AutomationSettings
 ): Promise<void> => {
-  const downloadUrl = findDownloadUrl(torrent, request);
-  if (!downloadUrl) throw new Error("Could not find a Download torrent link");
   const baseUrl = settings.qBittorrentUrl.replace(/\/+$/, "");
   if (!baseUrl) throw new Error("Set the qBittorrent Web UI URL first");
 
@@ -145,12 +167,9 @@ const quiAddTorrentUrl = (quiUrl: string): string => {
 };
 
 const sendToQuiPaused = async (
-  torrent: Torrent,
-  request: Request,
+  downloadUrl: string,
   settings: AutomationSettings
 ): Promise<void> => {
-  const downloadUrl = findDownloadUrl(torrent, request);
-  if (!downloadUrl) throw new Error("Could not find a Download torrent link");
   if (!settings.quiUrl || !settings.quiApiKey) {
     throw new Error("Set both the qui instance URL and API key first");
   }
@@ -173,19 +192,36 @@ const sendToQuiPaused = async (
 
 export const performTorrentAction = async (
   request: Request,
-  settings: AutomationSettings
+  settings: AutomationSettings,
+  maximumActions = Number.POSITIVE_INFINITY
 ): Promise<number> => {
-  if (settings.torrentAction === "none") return 0;
+  if (settings.torrentAction === "none" || maximumActions <= 0) return 0;
   let actioned = 0;
+  const actionedElements = new Set<HTMLElement>();
+  const submittedDownloadUrls = new Set<string>();
   for (const torrent of request.torrents) {
-    if (settings.torrentAction === "qbittorrent-paused") {
-      await sendToQbittorrentPaused(torrent, request, settings);
+    if (actioned >= maximumActions) break;
+    if (
+      settings.torrentAction === "qbittorrent-paused" ||
+      settings.torrentAction === "qui-paused"
+    ) {
+      const downloadUrl = findDownloadUrl(torrent, request);
+      if (!downloadUrl) {
+        console.warn(
+          "[Find Unique Titles] Could not find a Download torrent link",
+          torrent.dom
+        );
+        continue;
+      }
+      if (submittedDownloadUrls.has(downloadUrl)) continue;
+      if (settings.torrentAction === "qbittorrent-paused") {
+        await sendToQbittorrentPaused(downloadUrl, settings);
+      } else {
+        await sendToQuiPaused(downloadUrl, settings);
+      }
+      submittedDownloadUrls.add(downloadUrl);
       actioned++;
-      continue;
-    }
-    if (settings.torrentAction === "qui-paused") {
-      await sendToQuiPaused(torrent, request, settings);
-      actioned++;
+      if (actioned < maximumActions) await wait(getActionCooldownMs(settings));
       continue;
     }
     const action = findActionElement(torrent, request, settings.torrentAction);
@@ -196,18 +232,36 @@ export const performTorrentAction = async (
       );
       continue;
     }
+    if (actionedElements.has(action)) continue;
     action.click();
+    actionedElements.add(action);
     actioned++;
+    if (actioned < maximumActions) await wait(getActionCooldownMs(settings));
   }
   return actioned;
 };
 
 export const startAutomationRun = async (targetTrackerName: string) => {
-  await GM.setValue(RUN_KEY, { targetTrackerName, pagesProcessed: 0 });
+  await GM.setValue(RUN_KEY, {
+    targetTrackerName,
+    pagesProcessed: 0,
+    nextPageUrl: window.location.href,
+  });
 };
 
-export const getAutomationRun = async (): Promise<AutomationRun | null> =>
-  await GM.getValue(RUN_KEY, null as AutomationRun | null);
+export const getAutomationRun = async (): Promise<AutomationRun | null> => {
+  const run = await GM.getValue(RUN_KEY, null as AutomationRun | null);
+  if (
+    !run ||
+    typeof run.targetTrackerName !== "string" ||
+    !Number.isSafeInteger(run.pagesProcessed) ||
+    run.pagesProcessed < 0 ||
+    (run.nextPageUrl !== undefined && typeof run.nextPageUrl !== "string")
+  ) {
+    return null;
+  }
+  return run;
+};
 
 export const stopAutomationRun = async () => {
   await GM.deleteValue(RUN_KEY);
@@ -218,8 +272,8 @@ export const advanceToNextPage = async (
   settings: AutomationSettings
 ): Promise<boolean> => {
   if (!settings.autoAdvancePages) return false;
-  if (settings.maxAutoPages > 0 && run.pagesProcessed >= settings.maxAutoPages)
-    return false;
+  const maxAutoPages = normalizeNonNegativeInteger(settings.maxAutoPages);
+  if (maxAutoPages > 0 && run.pagesProcessed >= maxAutoPages) return false;
 
   const nextUrl = new URL(window.location.href);
   const currentPage = Number.parseInt(
@@ -233,6 +287,7 @@ export const advanceToNextPage = async (
   await GM.setValue(RUN_KEY, {
     ...run,
     pagesProcessed: run.pagesProcessed + 1,
+    nextPageUrl: nextUrl.toString(),
   });
   window.location.assign(nextUrl.toString());
   return true;

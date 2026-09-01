@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name Find Unique Titles
 // @description Find unique titles to cross seed
-// @version 0.0.26
+// @version 0.0.27
 // @author Mea01
 // @match https://aither.cc/torrents?*
 // @match https://avistaz.to/movies*
@@ -46,6 +46,7 @@
 // @grant GM.xmlHttpRequest
 // @grant GM.setValue
 // @grant GM.getValue
+// @grant GM.deleteValue
 // @grant GM_registerMenuCommand
 // @namespace http://tampermonkey.net/
 // @require https://cdn.jsdelivr.net/npm/jquery@^3.6.4/dist/jquery.min.js
@@ -62,12 +63,17 @@
         VR: () => stopAutomationRun,
         bU: () => startAutomationRun,
         gW: () => performTorrentAction,
-        j0: () => advanceToNextPage
+        j0: () => advanceToNextPage,
+        u2: () => getMaxActionsPerPage
       });
       const RUN_KEY = "find-unique-titles-automation-run";
       const DOWNLOAD_TEXT = /\bdownload(?:\s+(?:the\s+)?torrent)?\b/i;
       const RESCUE_TEXT = /\brescue(?:\s+(?:the\s+)?torrent)?\b/i;
       const RAINDROP_TEXT = /raindrop/i;
+      const normalizeNonNegativeInteger = value => Math.max(0, Math.trunc(Number(value) || 0));
+      const getActionCooldownMs = settings => settings.enableActionCooldown ? Math.min(6e4, Math.max(250, normalizeNonNegativeInteger(settings.actionCooldownMs))) : 0;
+      const getMaxActionsPerPage = settings => normalizeNonNegativeInteger(settings.maxActionsPerPage);
+      const wait = milliseconds => new Promise((resolve => window.setTimeout(resolve, milliseconds)));
       const elementText = element => [ element.textContent, element.getAttribute("title"), element.getAttribute("aria-label"), element.value ].filter(Boolean).join(" ").replace(/\s+/g, " ").trim();
       const actionPattern = action => {
         if ("download" === action) return DOWNLOAD_TEXT;
@@ -75,7 +81,7 @@
         if ("raindrop" === action) return RAINDROP_TEXT;
         return null;
       };
-      const actionRoots = (torrent, request) => Array.from(new Set([ torrent.dom, ...request.dom ]));
+      const actionRoots = (torrent, request) => 1 === request.torrents.length ? Array.from(new Set([ torrent.dom, ...request.dom ])) : [ torrent.dom ];
       const findActionElement = (torrent, request, action) => {
         const pattern = actionPattern(action);
         if (!pattern) return null;
@@ -94,9 +100,7 @@
         }
         return null;
       };
-      const sendToQbittorrentPaused = async (torrent, request, settings) => {
-        const downloadUrl = findDownloadUrl(torrent, request);
-        if (!downloadUrl) throw new Error("Could not find a Download torrent link");
+      const sendToQbittorrentPaused = async (downloadUrl, settings) => {
         const baseUrl = settings.qBittorrentUrl.replace(/\/+$/, "");
         if (!baseUrl) throw new Error("Set the qBittorrent Web UI URL first");
         if (settings.qBittorrentUsername) {
@@ -134,9 +138,7 @@
         if (!match) throw new Error("Qui URL must end with /instances/<number>, for example http://localhost:7476/instances/1");
         return `${parsedUrl.origin}${match[1]}/api/instances/${match[2]}/torrents`;
       };
-      const sendToQuiPaused = async (torrent, request, settings) => {
-        const downloadUrl = findDownloadUrl(torrent, request);
-        if (!downloadUrl) throw new Error("Could not find a Download torrent link");
+      const sendToQuiPaused = async (downloadUrl, settings) => {
         if (!settings.quiUrl || !settings.quiApiKey) throw new Error("Set both the qui instance URL and API key first");
         const form = new FormData;
         form.append("urls", downloadUrl);
@@ -152,18 +154,24 @@
         });
         if (201 !== response.status) throw new Error(`qui rejected the torrent (HTTP ${response.status})`);
       };
-      const performTorrentAction = async (request, settings) => {
-        if ("none" === settings.torrentAction) return 0;
+      const performTorrentAction = async (request, settings, maximumActions = Number.POSITIVE_INFINITY) => {
+        if ("none" === settings.torrentAction || maximumActions <= 0) return 0;
         let actioned = 0;
+        const actionedElements = new Set;
+        const submittedDownloadUrls = new Set;
         for (const torrent of request.torrents) {
-          if ("qbittorrent-paused" === settings.torrentAction) {
-            await sendToQbittorrentPaused(torrent, request, settings);
+          if (actioned >= maximumActions) break;
+          if ("qbittorrent-paused" === settings.torrentAction || "qui-paused" === settings.torrentAction) {
+            const downloadUrl = findDownloadUrl(torrent, request);
+            if (!downloadUrl) {
+              console.warn("[Find Unique Titles] Could not find a Download torrent link", torrent.dom);
+              continue;
+            }
+            if (submittedDownloadUrls.has(downloadUrl)) continue;
+            if ("qbittorrent-paused" === settings.torrentAction) await sendToQbittorrentPaused(downloadUrl, settings); else await sendToQuiPaused(downloadUrl, settings);
+            submittedDownloadUrls.add(downloadUrl);
             actioned++;
-            continue;
-          }
-          if ("qui-paused" === settings.torrentAction) {
-            await sendToQuiPaused(torrent, request, settings);
-            actioned++;
+            if (actioned < maximumActions) await wait(getActionCooldownMs(settings));
             continue;
           }
           const action = findActionElement(torrent, request, settings.torrentAction);
@@ -171,30 +179,40 @@
             console.warn(`[Find Unique Titles] Could not find ${settings.torrentAction} action`, torrent.dom);
             continue;
           }
+          if (actionedElements.has(action)) continue;
           action.click();
+          actionedElements.add(action);
           actioned++;
+          if (actioned < maximumActions) await wait(getActionCooldownMs(settings));
         }
         return actioned;
       };
       const startAutomationRun = async targetTrackerName => {
         await GM.setValue(RUN_KEY, {
           targetTrackerName,
-          pagesProcessed: 0
+          pagesProcessed: 0,
+          nextPageUrl: window.location.href
         });
       };
-      const getAutomationRun = async () => await GM.getValue(RUN_KEY, null);
+      const getAutomationRun = async () => {
+        const run = await GM.getValue(RUN_KEY, null);
+        if (!run || "string" != typeof run.targetTrackerName || !Number.isSafeInteger(run.pagesProcessed) || run.pagesProcessed < 0 || void 0 !== run.nextPageUrl && "string" != typeof run.nextPageUrl) return null;
+        return run;
+      };
       const stopAutomationRun = async () => {
         await GM.deleteValue(RUN_KEY);
       };
       const advanceToNextPage = async (run, settings) => {
         if (!settings.autoAdvancePages) return false;
-        if (settings.maxAutoPages > 0 && run.pagesProcessed >= settings.maxAutoPages) return false;
+        const maxAutoPages = normalizeNonNegativeInteger(settings.maxAutoPages);
+        if (maxAutoPages > 0 && run.pagesProcessed >= maxAutoPages) return false;
         const nextUrl = new URL(window.location.href);
         const currentPage = Number.parseInt(nextUrl.searchParams.get("page") ?? "1", 10);
         nextUrl.searchParams.set("page", String(Number.isFinite(currentPage) ? currentPage + 1 : 2));
         await GM.setValue(RUN_KEY, {
           ...run,
-          pagesProcessed: run.pagesProcessed + 1
+          pagesProcessed: run.pagesProcessed + 1,
+          nextPageUrl: nextUrl.toString()
         });
         window.location.assign(nextUrl.toString());
         return true;
@@ -254,20 +272,33 @@
             }));
             if (null == sourceTracker) return;
             const select = (0, _utils_dom__WEBPACK_IMPORTED_MODULE_5__.WC)(targetTrackers.map((tracker => tracker.name())));
+            sourceTracker.insertTrackersSelect(select);
+            let stopRequested = false;
+            const controls = (0, _utils_dom__WEBPACK_IMPORTED_MODULE_5__.Iw)(select, (() => {
+              stopRequested = true;
+              (0, _automation__WEBPACK_IMPORTED_MODULE_6__.VR)();
+              controls.setStatus("Stopping…");
+            }), _settings__WEBPACK_IMPORTED_MODULE_3__.r);
             const runSearch = async (targetName, continuingRun = false) => {
               const answer = continuingRun || confirm("Start searching new content for:  " + targetName);
               if (answer) {
                 const targetTracker = targetTrackers.find((tracker => tracker.name() === targetName));
                 if (!targetTracker) return;
                 if (!continuingRun && settings.autoAdvancePages) await (0, _automation__WEBPACK_IMPORTED_MODULE_6__.bU)(targetName);
+                stopRequested = false;
+                controls.setStatus(`Checking ${targetName}…`, true);
                 let i = 1;
                 let newContent = 0;
+                let actionsOnPage = 0;
+                let actionError = false;
+                let terminalStatus = null;
                 let requestGenerator = sourceTracker.getSearchRequest();
                 const metadata = (await requestGenerator.next()).value;
                 (0, _utils_dom__WEBPACK_IMPORTED_MODULE_5__.X_)();
                 (0, _utils_dom__WEBPACK_IMPORTED_MODULE_5__.I5)(metadata.total);
                 common_logger__WEBPACK_IMPORTED_MODULE_0__.k.debug("[{0}] Parsing titles to check", sourceTracker.name());
                 for await (const item of requestGenerator) {
+                  if (stopRequested) break;
                   if (null == item) continue;
                   const request = item;
                   common_logger__WEBPACK_IMPORTED_MODULE_0__.k.debug("[{0}] Search request: {1}", sourceTracker.name(), request);
@@ -290,16 +321,24 @@
                       hideTorrents(request);
                     } else if (response == _trackers_tracker__WEBPACK_IMPORTED_MODULE_2__.lt.NOT_LOGGED_IN) {
                       alert(`You are not logged in ${targetTracker.name()}`);
+                      terminalStatus = `Stopped: not logged in to ${targetTracker.name()}`;
                       break;
                     } else {
                       newContent++;
                       (0, _utils_dom__WEBPACK_IMPORTED_MODULE_5__.t)(newContent);
                       if (canPerformTorrentAction(response)) try {
-                        const actioned = await (0, _automation__WEBPACK_IMPORTED_MODULE_6__.gW)(request, settings);
-                        if (actioned > 0) common_logger__WEBPACK_IMPORTED_MODULE_0__.k.info("Performed {0} configured torrent action(s)", actioned);
+                        const maxActions = (0, _automation__WEBPACK_IMPORTED_MODULE_6__.u2)(settings);
+                        const remainingActions = 0 === maxActions ? Number.POSITIVE_INFINITY : Math.max(0, maxActions - actionsOnPage);
+                        if (remainingActions > 0 && (!settings.confirmBeforeActions || confirm(`Perform ${settings.torrentAction} for this confirmed result?`))) {
+                          const actioned = await (0, _automation__WEBPACK_IMPORTED_MODULE_6__.gW)(request, settings, remainingActions);
+                          actionsOnPage += actioned;
+                          if (actioned > 0) controls.setStatus(`Acted on ${actionsOnPage}${0 === maxActions ? "" : `/${maxActions}`} item(s)`, true);
+                        }
                       } catch (e) {
                         console.trace("Unable to perform configured torrent action", e);
                         request.dom[0].setAttribute("title", `Torrent action failed: ${e.message}`);
+                        actionError = true;
+                        if (settings.stopOnActionError) break;
                       }
                       if (response == _trackers_tracker__WEBPACK_IMPORTED_MODULE_2__.lt.MAYBE_NOT_EXIST) {
                         request.dom[0].setAttribute("title", "Title may not exist on target tracker");
@@ -331,18 +370,31 @@
                   }
                 }
                 (0, _utils_cache__WEBPACK_IMPORTED_MODULE_7__.sA)();
+                if (terminalStatus) {
+                  await (0, _automation__WEBPACK_IMPORTED_MODULE_6__.VR)();
+                  controls.setStatus(terminalStatus);
+                  return;
+                }
+                if (stopRequested || actionError && settings.stopOnActionError) {
+                  await (0, _automation__WEBPACK_IMPORTED_MODULE_6__.VR)();
+                  controls.setStatus(stopRequested ? "Stopped" : "Stopped after action error");
+                  return;
+                }
                 const run = await (0, _automation__WEBPACK_IMPORTED_MODULE_6__.D9)();
                 if (run?.targetTrackerName === targetName) if (0 === metadata.total || !await (0, 
-                _automation__WEBPACK_IMPORTED_MODULE_6__.j0)(run, settings)) await (0, _automation__WEBPACK_IMPORTED_MODULE_6__.VR)();
+                _automation__WEBPACK_IMPORTED_MODULE_6__.j0)(run, settings)) {
+                  await (0, _automation__WEBPACK_IMPORTED_MODULE_6__.VR)();
+                  controls.setStatus(0 === metadata.total ? "Finished: no more results" : "Finished");
+                } else controls.setStatus("Opening next page…", true); else controls.setStatus("Finished");
               }
             };
             select.addEventListener("change", (() => void runSearch(select.value)));
             const automationRun = await (0, _automation__WEBPACK_IMPORTED_MODULE_6__.D9)();
-            if (automationRun) {
+            if (automationRun) if (automationRun.nextPageUrl && automationRun.nextPageUrl !== window.location.href) await (0, 
+            _automation__WEBPACK_IMPORTED_MODULE_6__.VR)(); else {
               select.value = automationRun.targetTrackerName;
               runSearch(automationRun.targetTrackerName, true);
             }
-            sourceTracker.insertTrackersSelect(select);
           };
           (0, common_dom__WEBPACK_IMPORTED_MODULE_9__.$f)();
           main().catch((e => {
@@ -372,7 +424,8 @@
     },
     97: (__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
       __webpack_require__.d(__webpack_exports__, {
-        G: () => getSettings
+        G: () => getSettings,
+        r: () => openSettings
       });
       const defaultConfig = {
         onlyNewTitles: false,
@@ -388,7 +441,12 @@
         qBittorrentUsername: "",
         qBittorrentPassword: "",
         quiUrl: "",
-        quiApiKey: ""
+        quiApiKey: "",
+        enableActionCooldown: true,
+        actionCooldownMs: 1500,
+        maxActionsPerPage: 10,
+        confirmBeforeActions: false,
+        stopOnActionError: true
       };
       GM_config.init({
         id: "find-unique-titles-settings",
@@ -460,6 +518,31 @@
             type: "password",
             default: defaultConfig.quiApiKey
           },
+          enableActionCooldown: {
+            label: "Enable a delay between automated actions",
+            type: "checkbox",
+            default: defaultConfig.enableActionCooldown
+          },
+          actionCooldownMs: {
+            label: "Delay between actions in ms (250–60000)",
+            type: "int",
+            default: defaultConfig.actionCooldownMs
+          },
+          maxActionsPerPage: {
+            label: "Maximum actions per page (0 = no limit)",
+            type: "int",
+            default: defaultConfig.maxActionsPerPage
+          },
+          confirmBeforeActions: {
+            label: "Ask before acting on each confirmed result",
+            type: "checkbox",
+            default: defaultConfig.confirmBeforeActions
+          },
+          stopOnActionError: {
+            label: "Stop the automation if an action fails",
+            type: "checkbox",
+            default: defaultConfig.stopOnActionError
+          },
           debug: {
             label: "Debug mode",
             type: "checkbox",
@@ -470,7 +553,7 @@
         events: {
           open: function() {
             GM_config.frame.style.width = "500px";
-            GM_config.frame.style.height = "620px";
+            GM_config.frame.style.height = "760px";
             GM_config.frame.style.position = "fixed";
             GM_config.frame.style.left = "50%";
             GM_config.frame.style.top = "50%";
@@ -496,8 +579,14 @@
         qBittorrentUsername: GM_config.get("qBittorrentUsername"),
         qBittorrentPassword: GM_config.get("qBittorrentPassword"),
         quiUrl: GM_config.get("quiUrl"),
-        quiApiKey: GM_config.get("quiApiKey")
+        quiApiKey: GM_config.get("quiApiKey"),
+        enableActionCooldown: GM_config.get("enableActionCooldown"),
+        actionCooldownMs: GM_config.get("actionCooldownMs"),
+        maxActionsPerPage: GM_config.get("maxActionsPerPage"),
+        confirmBeforeActions: GM_config.get("confirmBeforeActions"),
+        stopOnActionError: GM_config.get("stopOnActionError")
       });
+      const openSettings = () => GM_config.open();
     },
     387: (__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
       __webpack_require__.d(__webpack_exports__, {
@@ -3362,6 +3451,7 @@
     996: (__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
       __webpack_require__.d(__webpack_exports__, {
         I5: () => updateTotalCount,
+        Iw: () => createAutomationControls,
         WC: () => createTrackersSelect,
         X_: () => addCounter,
         t: () => updateNewContent,
@@ -3383,6 +3473,33 @@
           select_dom.appendChild(opt);
         }
         return select_dom;
+      };
+      const createAutomationControls = (select, onStop, onOpenSettings) => {
+        const existing = document.getElementById("find-unique-titles-automation");
+        if (existing) existing.remove();
+        const controls = document.createElement("span");
+        controls.id = "find-unique-titles-automation";
+        controls.style.cssText = "display:inline-flex;gap:6px;align-items:center;margin:4px 0;padding:5px 8px;border:1px solid #5d6d7e;border-radius:4px;font-size:12px;";
+        const status = document.createElement("span");
+        status.textContent = "Ready";
+        status.style.minWidth = "110px";
+        const settingsButton = document.createElement("button");
+        settingsButton.type = "button";
+        settingsButton.textContent = "Settings";
+        settingsButton.addEventListener("click", onOpenSettings);
+        const stopButton = document.createElement("button");
+        stopButton.type = "button";
+        stopButton.textContent = "Stop";
+        stopButton.disabled = true;
+        stopButton.addEventListener("click", onStop);
+        controls.append(status, settingsButton, stopButton);
+        select.insertAdjacentElement("afterend", controls);
+        return {
+          setStatus: (message, running = false) => {
+            status.textContent = message;
+            stopButton.disabled = !running;
+          }
+        };
       };
       const createMessageBox = () => {
         let div = document.getElementById("message-box");

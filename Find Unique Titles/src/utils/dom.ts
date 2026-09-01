@@ -16,6 +16,49 @@ export const createTrackersSelect = (trackers: Array<string>) => {
   return select_dom;
 };
 
+interface AutomationControls {
+  setStatus: (message: string, running?: boolean) => void;
+}
+
+export const createAutomationControls = (
+  select: HTMLSelectElement,
+  onStop: () => void,
+  onOpenSettings: () => void
+): AutomationControls => {
+  const existing = document.getElementById("find-unique-titles-automation");
+  if (existing) existing.remove();
+
+  const controls = document.createElement("span");
+  controls.id = "find-unique-titles-automation";
+  controls.style.cssText =
+    "display:inline-flex;gap:6px;align-items:center;margin:4px 0;padding:5px 8px;border:1px solid #5d6d7e;border-radius:4px;font-size:12px;";
+
+  const status = document.createElement("span");
+  status.textContent = "Ready";
+  status.style.minWidth = "110px";
+
+  const settingsButton = document.createElement("button");
+  settingsButton.type = "button";
+  settingsButton.textContent = "Settings";
+  settingsButton.addEventListener("click", onOpenSettings);
+
+  const stopButton = document.createElement("button");
+  stopButton.type = "button";
+  stopButton.textContent = "Stop";
+  stopButton.disabled = true;
+  stopButton.addEventListener("click", onStop);
+
+  controls.append(status, settingsButton, stopButton);
+  select.insertAdjacentElement("afterend", controls);
+
+  return {
+    setStatus: (message, running = false) => {
+      status.textContent = message;
+      stopButton.disabled = !running;
+    },
+  };
+};
+
 const createMessageBox = () => {
   let div = document.getElementById("message-box");
   if (div) return div;

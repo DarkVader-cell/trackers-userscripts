@@ -13,6 +13,11 @@ const defaultConfig: Settings = {
   qBittorrentPassword: "",
   quiUrl: "",
   quiApiKey: "",
+  enableActionCooldown: true,
+  actionCooldownMs: 1500,
+  maxActionsPerPage: 10,
+  confirmBeforeActions: false,
+  stopOnActionError: true,
 };
 
 // Initialize the library
@@ -93,6 +98,31 @@ GM_config.init({
       type: "password",
       default: defaultConfig.quiApiKey,
     },
+    enableActionCooldown: {
+      label: "Enable a delay between automated actions",
+      type: "checkbox",
+      default: defaultConfig.enableActionCooldown,
+    },
+    actionCooldownMs: {
+      label: "Delay between actions in ms (250–60000)",
+      type: "int",
+      default: defaultConfig.actionCooldownMs,
+    },
+    maxActionsPerPage: {
+      label: "Maximum actions per page (0 = no limit)",
+      type: "int",
+      default: defaultConfig.maxActionsPerPage,
+    },
+    confirmBeforeActions: {
+      label: "Ask before acting on each confirmed result",
+      type: "checkbox",
+      default: defaultConfig.confirmBeforeActions,
+    },
+    stopOnActionError: {
+      label: "Stop the automation if an action fails",
+      type: "checkbox",
+      default: defaultConfig.stopOnActionError,
+    },
     debug: {
       label: "Debug mode",
       type: "checkbox",
@@ -111,7 +141,7 @@ GM_config.init({
   events: {
     open: function () {
       GM_config.frame.style.width = "500px"; // Adjust width as needed
-      GM_config.frame.style.height = "620px"; // Adjust width as needed
+      GM_config.frame.style.height = "760px"; // Adjust width as needed
       GM_config.frame.style.position = "fixed";
       GM_config.frame.style.left = "50%";
       GM_config.frame.style.top = "50%";
@@ -144,10 +174,15 @@ export const getSettings = (): Settings => {
     qBittorrentPassword: GM_config.get("qBittorrentPassword"),
     quiUrl: GM_config.get("quiUrl"),
     quiApiKey: GM_config.get("quiApiKey"),
+    enableActionCooldown: GM_config.get("enableActionCooldown"),
+    actionCooldownMs: GM_config.get("actionCooldownMs"),
+    maxActionsPerPage: GM_config.get("maxActionsPerPage"),
+    confirmBeforeActions: GM_config.get("confirmBeforeActions"),
+    stopOnActionError: GM_config.get("stopOnActionError"),
   };
 };
 
-interface Settings {
+export interface Settings {
   useCache: boolean;
   onlyNewTitles: boolean;
   debug: boolean;
@@ -162,4 +197,11 @@ interface Settings {
   qBittorrentPassword: string;
   quiUrl: string;
   quiApiKey: string;
+  enableActionCooldown: boolean;
+  actionCooldownMs: number;
+  maxActionsPerPage: number;
+  confirmBeforeActions: boolean;
+  stopOnActionError: boolean;
 }
+
+export const openSettings = () => GM_config.open();

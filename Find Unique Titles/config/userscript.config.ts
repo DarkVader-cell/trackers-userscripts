@@ -75,6 +75,7 @@ export const UserScriptConfig: IWebpackUserScript = {
       "GM.xmlHttpRequest",
       "GM.setValue",
       "GM.getValue",
+      "GM.deleteValue",
       "GM_registerMenuCommand",
     ],
     connect: ["*"],

@@ -3,6 +3,7 @@ import { MetaData, Request, SearchResult, tracker } from "./trackers/tracker";
 import { addToCache, clearMemoryCache, existsInCache } from "./utils/cache";
 import {
   addCounter,
+  createAutomationControls,
   createTrackersSelect,
   updateCount,
   updateNewContent,
@@ -12,12 +13,13 @@ import { parseReleaseGroup } from "./utils/utils";
 import "./settings";
 import {
   advanceToNextPage,
+  getMaxActionsPerPage,
   getAutomationRun,
   performTorrentAction,
   startAutomationRun,
   stopAutomationRun,
 } from "./automation";
-import { getSettings } from "./settings";
+import { getSettings, openSettings } from "./settings";
 import { appendErrorMessage, showError } from "common/dom";
 import { sleep } from "common/http";
 import { LEVEL, logger } from "common/logger";
@@ -122,6 +124,17 @@ const main = async function () {
   const select = createTrackersSelect(
     targetTrackers.map((tracker) => tracker.name())
   );
+  (sourceTracker as tracker).insertTrackersSelect(select);
+  let stopRequested = false;
+  const controls = createAutomationControls(
+    select,
+    () => {
+      stopRequested = true;
+      void stopAutomationRun();
+      controls.setStatus("Stopping…");
+    },
+    openSettings
+  );
   const runSearch = async (targetName: string, continuingRun = false) => {
     const answer =
       continuingRun ||
@@ -134,14 +147,20 @@ const main = async function () {
       if (!continuingRun && settings.autoAdvancePages) {
         await startAutomationRun(targetName);
       }
+      stopRequested = false;
+      controls.setStatus(`Checking ${targetName}…`, true);
       let i = 1;
       let newContent = 0;
+      let actionsOnPage = 0;
+      let actionError = false;
+      let terminalStatus: string | null = null;
       let requestGenerator = (sourceTracker as tracker).getSearchRequest();
       const metadata = (await requestGenerator.next()).value as MetaData;
       addCounter();
       updateTotalCount(metadata.total);
       logger.debug(`[{0}] Parsing titles to check`, sourceTracker!!.name());
       for await (const item of requestGenerator) {
+        if (stopRequested) break;
         if (item == null) {
           continue;
         }
@@ -185,18 +204,39 @@ const main = async function () {
             hideTorrents(request);
           } else if (response == SearchResult.NOT_LOGGED_IN) {
             alert(`You are not logged in ${targetTracker.name()}`);
+            terminalStatus = `Stopped: not logged in to ${targetTracker.name()}`;
             break;
           } else {
             newContent++;
             updateNewContent(newContent);
             if (canPerformTorrentAction(response)) {
               try {
-                const actioned = await performTorrentAction(request, settings);
-                if (actioned > 0) {
-                  logger.info(
-                    "Performed {0} configured torrent action(s)",
-                    actioned
+                const maxActions = getMaxActionsPerPage(settings);
+                const remainingActions =
+                  maxActions === 0
+                    ? Number.POSITIVE_INFINITY
+                    : Math.max(0, maxActions - actionsOnPage);
+                if (
+                  remainingActions > 0 &&
+                  (!settings.confirmBeforeActions ||
+                    confirm(
+                      `Perform ${settings.torrentAction} for this confirmed result?`
+                    ))
+                ) {
+                  const actioned = await performTorrentAction(
+                    request,
+                    settings,
+                    remainingActions
                   );
+                  actionsOnPage += actioned;
+                  if (actioned > 0) {
+                    controls.setStatus(
+                      `Acted on ${actionsOnPage}${
+                        maxActions === 0 ? "" : `/${maxActions}`
+                      } item(s)`,
+                      true
+                    );
+                  }
                 }
               } catch (e) {
                 console.trace("Unable to perform configured torrent action", e);
@@ -204,6 +244,8 @@ const main = async function () {
                   "title",
                   `Torrent action failed: ${(e as Error).message}`
                 );
+                actionError = true;
+                if (settings.stopOnActionError) break;
               }
             }
             if (response == SearchResult.MAYBE_NOT_EXIST) {
@@ -257,11 +299,30 @@ const main = async function () {
         }
       }
       clearMemoryCache();
+      if (terminalStatus) {
+        await stopAutomationRun();
+        controls.setStatus(terminalStatus);
+        return;
+      }
+      if (stopRequested || (actionError && settings.stopOnActionError)) {
+        await stopAutomationRun();
+        controls.setStatus(
+          stopRequested ? "Stopped" : "Stopped after action error"
+        );
+        return;
+      }
       const run = await getAutomationRun();
       if (run?.targetTrackerName === targetName) {
         if (metadata.total === 0 || !(await advanceToNextPage(run, settings))) {
           await stopAutomationRun();
+          controls.setStatus(
+            metadata.total === 0 ? "Finished: no more results" : "Finished"
+          );
+        } else {
+          controls.setStatus("Opening next page…", true);
         }
+      } else {
+        controls.setStatus("Finished");
       }
     }
   };
@@ -270,10 +331,16 @@ const main = async function () {
 
   const automationRun = await getAutomationRun();
   if (automationRun) {
-    select.value = automationRun.targetTrackerName;
-    void runSearch(automationRun.targetTrackerName, true);
+    if (
+      automationRun.nextPageUrl &&
+      automationRun.nextPageUrl !== window.location.href
+    ) {
+      await stopAutomationRun();
+    } else {
+      select.value = automationRun.targetTrackerName;
+      void runSearch(automationRun.targetTrackerName, true);
+    }
   }
-  (sourceTracker as tracker).insertTrackersSelect(select);
 };
 
 appendErrorMessage();
