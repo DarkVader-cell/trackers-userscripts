@@ -1,7 +1,6 @@
 import * as trackers from "./trackers";
 import { MetaData, Request, SearchResult, tracker } from "./trackers/tracker";
 import { addToCache, clearMemoryCache, existsInCache } from "./utils/cache";
-import { parseReleaseGroup } from "./utils/utils";
 import {
   addCounter,
   createTrackersSelect,
@@ -9,7 +8,15 @@ import {
   updateNewContent,
   updateTotalCount,
 } from "./utils/dom";
+import { parseReleaseGroup } from "./utils/utils";
 import "./settings";
+import {
+  advanceToNextPage,
+  getAutomationRun,
+  performTorrentAction,
+  startAutomationRun,
+  stopAutomationRun,
+} from "./automation";
 import { getSettings } from "./settings";
 import { appendErrorMessage, showError } from "common/dom";
 import { sleep } from "common/http";
@@ -65,20 +72,26 @@ const shouldSkipRequest = (
   const releaseGroups = request.torrents
     .map(
       (torrent) =>
-        torrent.releaseGroup ??
-        parseReleaseGroup(torrent.dom.textContent ?? "")
+        torrent.releaseGroup ?? parseReleaseGroup(torrent.dom.textContent ?? "")
     )
     .filter((group): group is string => Boolean(group));
 
   const hasSkippedReleaseGroup =
     releaseGroups.length > 0 &&
-    releaseGroups.every((group) => skippedReleaseGroups.has(group.toLowerCase()));
+    releaseGroups.every((group) =>
+      skippedReleaseGroups.has(group.toLowerCase())
+    );
 
   return (
     hasSkippedReleaseGroup ||
     (skipUnknownStreamingProviders && hasUnknownStreamingProvider(request))
   );
 };
+
+const canPerformTorrentAction = (response: SearchResult): boolean =>
+  response === SearchResult.NOT_EXIST ||
+  response === SearchResult.NOT_EXIST_WITH_REQUEST ||
+  response === SearchResult.EXIST_BUT_MISSING_SLOT;
 
 const main = async function () {
   "use strict";
@@ -109,12 +122,18 @@ const main = async function () {
   const select = createTrackersSelect(
     targetTrackers.map((tracker) => tracker.name())
   );
-  select.addEventListener("change", async () => {
-    let answer = confirm("Start searching new content for:  " + select.value);
+  const runSearch = async (targetName: string, continuingRun = false) => {
+    const answer =
+      continuingRun ||
+      confirm("Start searching new content for:  " + targetName);
     if (answer) {
       const targetTracker = targetTrackers.find(
-        (tracker) => tracker.name() === select.value
+        (tracker) => tracker.name() === targetName
       ) as tracker;
+      if (!targetTracker) return;
+      if (!continuingRun && settings.autoAdvancePages) {
+        await startAutomationRun(targetName);
+      }
       let i = 1;
       let newContent = 0;
       let requestGenerator = (sourceTracker as tracker).getSearchRequest();
@@ -170,6 +189,23 @@ const main = async function () {
           } else {
             newContent++;
             updateNewContent(newContent);
+            if (canPerformTorrentAction(response)) {
+              try {
+                const actioned = await performTorrentAction(request, settings);
+                if (actioned > 0) {
+                  logger.info(
+                    "Performed {0} configured torrent action(s)",
+                    actioned
+                  );
+                }
+              } catch (e) {
+                console.trace("Unable to perform configured torrent action", e);
+                request.dom[0].setAttribute(
+                  "title",
+                  `Torrent action failed: ${(e as Error).message}`
+                );
+              }
+            }
             if (response == SearchResult.MAYBE_NOT_EXIST) {
               request.dom[0].setAttribute(
                 "title",
@@ -221,8 +257,22 @@ const main = async function () {
         }
       }
       clearMemoryCache();
+      const run = await getAutomationRun();
+      if (run?.targetTrackerName === targetName) {
+        if (metadata.total === 0 || !(await advanceToNextPage(run, settings))) {
+          await stopAutomationRun();
+        }
+      }
     }
-  });
+  };
+
+  select.addEventListener("change", () => void runSearch(select.value));
+
+  const automationRun = await getAutomationRun();
+  if (automationRun) {
+    select.value = automationRun.targetTrackerName;
+    void runSearch(automationRun.targetTrackerName, true);
+  }
   (sourceTracker as tracker).insertTrackersSelect(select);
 };
 

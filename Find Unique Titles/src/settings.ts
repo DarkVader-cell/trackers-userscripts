@@ -5,6 +5,14 @@ const defaultConfig: Settings = {
   sizeDifferenceThreshold: 1.2,
   skippedReleaseGroups: "",
   skipUnknownStreamingProviders: false,
+  autoAdvancePages: false,
+  maxAutoPages: 0,
+  torrentAction: "none",
+  qBittorrentUrl: "",
+  qBittorrentUsername: "",
+  qBittorrentPassword: "",
+  quiUrl: "",
+  quiApiKey: "",
 };
 
 // Initialize the library
@@ -37,6 +45,54 @@ GM_config.init({
       type: "checkbox",
       default: defaultConfig.skipUnknownStreamingProviders,
     },
+    autoAdvancePages: {
+      label: "Automatically continue to the next page",
+      type: "checkbox",
+      default: defaultConfig.autoAdvancePages,
+    },
+    maxAutoPages: {
+      label: "Maximum additional pages (0 = no limit)",
+      type: "int",
+      default: defaultConfig.maxAutoPages,
+    },
+    torrentAction: {
+      label: "Action for confirmed unique torrents",
+      type: "select",
+      options: [
+        "none",
+        "download",
+        "rescue",
+        "raindrop",
+        "qui-paused",
+        "qbittorrent-paused",
+      ],
+      default: defaultConfig.torrentAction,
+    },
+    qBittorrentUrl: {
+      label: "qBittorrent Web UI URL (for qbittorrent-paused)",
+      type: "text",
+      default: defaultConfig.qBittorrentUrl,
+    },
+    qBittorrentUsername: {
+      label: "qBittorrent username (optional)",
+      type: "text",
+      default: defaultConfig.qBittorrentUsername,
+    },
+    qBittorrentPassword: {
+      label: "qBittorrent password (optional)",
+      type: "password",
+      default: defaultConfig.qBittorrentPassword,
+    },
+    quiUrl: {
+      label: "qui instance URL (ends in /instances/<number>)",
+      type: "text",
+      default: defaultConfig.quiUrl,
+    },
+    quiApiKey: {
+      label: "qui API key",
+      type: "password",
+      default: defaultConfig.quiApiKey,
+    },
     debug: {
       label: "Debug mode",
       type: "checkbox",
@@ -55,7 +111,7 @@ GM_config.init({
   events: {
     open: function () {
       GM_config.frame.style.width = "500px"; // Adjust width as needed
-      GM_config.frame.style.height = "320px"; // Adjust width as needed
+      GM_config.frame.style.height = "620px"; // Adjust width as needed
       GM_config.frame.style.position = "fixed";
       GM_config.frame.style.left = "50%";
       GM_config.frame.style.top = "50%";
@@ -80,6 +136,14 @@ export const getSettings = (): Settings => {
     skipUnknownStreamingProviders: GM_config.get(
       "skipUnknownStreamingProviders"
     ),
+    autoAdvancePages: GM_config.get("autoAdvancePages"),
+    maxAutoPages: GM_config.get("maxAutoPages"),
+    torrentAction: GM_config.get("torrentAction"),
+    qBittorrentUrl: GM_config.get("qBittorrentUrl"),
+    qBittorrentUsername: GM_config.get("qBittorrentUsername"),
+    qBittorrentPassword: GM_config.get("qBittorrentPassword"),
+    quiUrl: GM_config.get("quiUrl"),
+    quiApiKey: GM_config.get("quiApiKey"),
   };
 };
 
@@ -90,4 +154,12 @@ interface Settings {
   sizeDifferenceThreshold: number;
   skippedReleaseGroups: string;
   skipUnknownStreamingProviders: boolean;
+  autoAdvancePages: boolean;
+  maxAutoPages: number;
+  torrentAction: import("./automation").TorrentAction;
+  qBittorrentUrl: string;
+  qBittorrentUsername: string;
+  qBittorrentPassword: string;
+  quiUrl: string;
+  quiApiKey: string;
 }

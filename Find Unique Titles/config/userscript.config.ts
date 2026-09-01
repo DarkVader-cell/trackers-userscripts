@@ -77,6 +77,7 @@ export const UserScriptConfig: IWebpackUserScript = {
       "GM.getValue",
       "GM_registerMenuCommand",
     ],
+    connect: ["*"],
     updateURL:
       "https://raw.githubusercontent.com/DarkVader-cell/trackers-userscripts/master/Find%20Unique%20Titles/dist/find.unique.titles.user.js",
     downloadURL:

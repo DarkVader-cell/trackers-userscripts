@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name Find Unique Titles
 // @description Find unique titles to cross seed
-// @version 0.0.25
+// @version 0.0.26
 // @author Mea01
 // @match https://aither.cc/torrents?*
 // @match https://avistaz.to/movies*
@@ -41,6 +41,7 @@
 // @match https://pterc.com/torrents.php*
 // @match https://torrentseeds.org/torrents*
 // @match https://torrentseeds.org/categories/*
+// @connect *
 // @downloadURL https://raw.githubusercontent.com/DarkVader-cell/trackers-userscripts/master/Find%20Unique%20Titles/dist/find.unique.titles.user.js
 // @grant GM.xmlHttpRequest
 // @grant GM.setValue
@@ -55,20 +56,165 @@
 (() => {
   "use strict";
   var __webpack_modules__ = {
+    687: (__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
+      __webpack_require__.d(__webpack_exports__, {
+        D9: () => getAutomationRun,
+        VR: () => stopAutomationRun,
+        bU: () => startAutomationRun,
+        gW: () => performTorrentAction,
+        j0: () => advanceToNextPage
+      });
+      const RUN_KEY = "find-unique-titles-automation-run";
+      const DOWNLOAD_TEXT = /\bdownload(?:\s+(?:the\s+)?torrent)?\b/i;
+      const RESCUE_TEXT = /\brescue(?:\s+(?:the\s+)?torrent)?\b/i;
+      const RAINDROP_TEXT = /raindrop/i;
+      const elementText = element => [ element.textContent, element.getAttribute("title"), element.getAttribute("aria-label"), element.value ].filter(Boolean).join(" ").replace(/\s+/g, " ").trim();
+      const actionPattern = action => {
+        if ("download" === action) return DOWNLOAD_TEXT;
+        if ("rescue" === action) return RESCUE_TEXT;
+        if ("raindrop" === action) return RAINDROP_TEXT;
+        return null;
+      };
+      const actionRoots = (torrent, request) => Array.from(new Set([ torrent.dom, ...request.dom ]));
+      const findActionElement = (torrent, request, action) => {
+        const pattern = actionPattern(action);
+        if (!pattern) return null;
+        for (const root of actionRoots(torrent, request)) {
+          const candidates = [ root, ...Array.from(root.querySelectorAll('a, button, input[type="button"], input[type="submit"]')) ];
+          const match = candidates.find((candidate => pattern.test(elementText(candidate))));
+          if (match) return match;
+        }
+        return null;
+      };
+      const findDownloadUrl = (torrent, request) => {
+        for (const root of actionRoots(torrent, request)) {
+          const candidates = [ ...root instanceof HTMLAnchorElement ? [ root ] : [], ...Array.from(root.querySelectorAll("a[href]")) ];
+          const link = candidates.find((candidate => DOWNLOAD_TEXT.test(elementText(candidate))));
+          if (link?.href) return link.href;
+        }
+        return null;
+      };
+      const sendToQbittorrentPaused = async (torrent, request, settings) => {
+        const downloadUrl = findDownloadUrl(torrent, request);
+        if (!downloadUrl) throw new Error("Could not find a Download torrent link");
+        const baseUrl = settings.qBittorrentUrl.replace(/\/+$/, "");
+        if (!baseUrl) throw new Error("Set the qBittorrent Web UI URL first");
+        if (settings.qBittorrentUsername) {
+          const login = await GM.xmlHttpRequest({
+            method: "POST",
+            url: `${baseUrl}/api/v2/auth/login`,
+            headers: {
+              "Content-Type": "application/x-www-form-urlencoded"
+            },
+            data: new URLSearchParams({
+              username: settings.qBittorrentUsername,
+              password: settings.qBittorrentPassword
+            }).toString(),
+            anonymous: false
+          });
+          if (login.status < 200 || login.status >= 300 || "Ok." !== login.responseText.trim()) throw new Error(`qBittorrent login failed (HTTP ${login.status})`);
+        }
+        const response = await GM.xmlHttpRequest({
+          method: "POST",
+          url: `${baseUrl}/api/v2/torrents/add`,
+          headers: {
+            "Content-Type": "application/x-www-form-urlencoded"
+          },
+          data: new URLSearchParams({
+            urls: downloadUrl,
+            paused: "true"
+          }).toString(),
+          anonymous: false
+        });
+        if (response.status < 200 || response.status >= 300) throw new Error(`qBittorrent rejected the torrent (HTTP ${response.status})`);
+      };
+      const quiAddTorrentUrl = quiUrl => {
+        const parsedUrl = new URL(quiUrl);
+        const match = parsedUrl.pathname.match(/^(.*)\/instances\/(\d+)\/?$/);
+        if (!match) throw new Error("Qui URL must end with /instances/<number>, for example http://localhost:7476/instances/1");
+        return `${parsedUrl.origin}${match[1]}/api/instances/${match[2]}/torrents`;
+      };
+      const sendToQuiPaused = async (torrent, request, settings) => {
+        const downloadUrl = findDownloadUrl(torrent, request);
+        if (!downloadUrl) throw new Error("Could not find a Download torrent link");
+        if (!settings.quiUrl || !settings.quiApiKey) throw new Error("Set both the qui instance URL and API key first");
+        const form = new FormData;
+        form.append("urls", downloadUrl);
+        form.append("paused", "true");
+        const response = await GM.xmlHttpRequest({
+          method: "POST",
+          url: quiAddTorrentUrl(settings.quiUrl),
+          data: form,
+          headers: {
+            "X-API-Key": settings.quiApiKey
+          },
+          anonymous: false
+        });
+        if (201 !== response.status) throw new Error(`qui rejected the torrent (HTTP ${response.status})`);
+      };
+      const performTorrentAction = async (request, settings) => {
+        if ("none" === settings.torrentAction) return 0;
+        let actioned = 0;
+        for (const torrent of request.torrents) {
+          if ("qbittorrent-paused" === settings.torrentAction) {
+            await sendToQbittorrentPaused(torrent, request, settings);
+            actioned++;
+            continue;
+          }
+          if ("qui-paused" === settings.torrentAction) {
+            await sendToQuiPaused(torrent, request, settings);
+            actioned++;
+            continue;
+          }
+          const action = findActionElement(torrent, request, settings.torrentAction);
+          if (!action) {
+            console.warn(`[Find Unique Titles] Could not find ${settings.torrentAction} action`, torrent.dom);
+            continue;
+          }
+          action.click();
+          actioned++;
+        }
+        return actioned;
+      };
+      const startAutomationRun = async targetTrackerName => {
+        await GM.setValue(RUN_KEY, {
+          targetTrackerName,
+          pagesProcessed: 0
+        });
+      };
+      const getAutomationRun = async () => await GM.getValue(RUN_KEY, null);
+      const stopAutomationRun = async () => {
+        await GM.deleteValue(RUN_KEY);
+      };
+      const advanceToNextPage = async (run, settings) => {
+        if (!settings.autoAdvancePages) return false;
+        if (settings.maxAutoPages > 0 && run.pagesProcessed >= settings.maxAutoPages) return false;
+        const nextUrl = new URL(window.location.href);
+        const currentPage = Number.parseInt(nextUrl.searchParams.get("page") ?? "1", 10);
+        nextUrl.searchParams.set("page", String(Number.isFinite(currentPage) ? currentPage + 1 : 2));
+        await GM.setValue(RUN_KEY, {
+          ...run,
+          pagesProcessed: run.pagesProcessed + 1
+        });
+        window.location.assign(nextUrl.toString());
+        return true;
+      };
+    },
     940: (module, __unused_webpack___webpack_exports__, __webpack_require__) => {
       __webpack_require__.a(module, (async (__webpack_handle_async_dependencies__, __webpack_async_result__) => {
         try {
-          var _trackers__WEBPACK_IMPORTED_MODULE_3__ = __webpack_require__(54);
-          var _trackers_tracker__WEBPACK_IMPORTED_MODULE_7__ = __webpack_require__(84);
-          var _utils_cache__WEBPACK_IMPORTED_MODULE_5__ = __webpack_require__(698);
+          var _trackers__WEBPACK_IMPORTED_MODULE_4__ = __webpack_require__(54);
+          var _trackers_tracker__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(84);
+          var _utils_cache__WEBPACK_IMPORTED_MODULE_7__ = __webpack_require__(698);
+          var _utils_dom__WEBPACK_IMPORTED_MODULE_5__ = __webpack_require__(996);
           var _utils_utils__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(657);
-          var _utils_dom__WEBPACK_IMPORTED_MODULE_4__ = __webpack_require__(996);
-          var _settings__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(97);
-          var common_dom__WEBPACK_IMPORTED_MODULE_8__ = __webpack_require__(933);
-          var common_http__WEBPACK_IMPORTED_MODULE_6__ = __webpack_require__(257);
+          var _automation__WEBPACK_IMPORTED_MODULE_6__ = __webpack_require__(687);
+          var _settings__WEBPACK_IMPORTED_MODULE_3__ = __webpack_require__(97);
+          var common_dom__WEBPACK_IMPORTED_MODULE_9__ = __webpack_require__(933);
+          var common_http__WEBPACK_IMPORTED_MODULE_8__ = __webpack_require__(257);
           var common_logger__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(616);
-          var __webpack_async_dependencies__ = __webpack_handle_async_dependencies__([ _trackers__WEBPACK_IMPORTED_MODULE_3__, _utils_cache__WEBPACK_IMPORTED_MODULE_5__ ]);
-          [_trackers__WEBPACK_IMPORTED_MODULE_3__, _utils_cache__WEBPACK_IMPORTED_MODULE_5__] = __webpack_async_dependencies__.then ? (await __webpack_async_dependencies__)() : __webpack_async_dependencies__;
+          var __webpack_async_dependencies__ = __webpack_handle_async_dependencies__([ _trackers__WEBPACK_IMPORTED_MODULE_4__, _utils_cache__WEBPACK_IMPORTED_MODULE_7__ ]);
+          [_trackers__WEBPACK_IMPORTED_MODULE_4__, _utils_cache__WEBPACK_IMPORTED_MODULE_7__] = __webpack_async_dependencies__.then ? (await __webpack_async_dependencies__)() : __webpack_async_dependencies__;
           function hideTorrents(request) {
             const elements = new Set([ ...request.dom, ...request.torrents.map((torrent => torrent.dom)) ]);
             for (let element of elements) element.style.display = "none";
@@ -87,13 +233,14 @@
             return WEB_RELEASE.test(title) && !hasKnownStreamingProvider(title);
           }));
           const shouldSkipRequest = (request, skippedReleaseGroups, skipUnknownStreamingProviders) => {
-            const releaseGroups = request.torrents.map((torrent => torrent.releaseGroup ?? (0,
+            const releaseGroups = request.torrents.map((torrent => torrent.releaseGroup ?? (0, 
             _utils_utils__WEBPACK_IMPORTED_MODULE_1__.ds)(torrent.dom.textContent ?? ""))).filter((group => Boolean(group)));
             const hasSkippedReleaseGroup = releaseGroups.length > 0 && releaseGroups.every((group => skippedReleaseGroups.has(group.toLowerCase())));
             return hasSkippedReleaseGroup || skipUnknownStreamingProviders && hasUnknownStreamingProvider(request);
           };
+          const canPerformTorrentAction = response => response === _trackers_tracker__WEBPACK_IMPORTED_MODULE_2__.lt.NOT_EXIST || response === _trackers_tracker__WEBPACK_IMPORTED_MODULE_2__.lt.NOT_EXIST_WITH_REQUEST || response === _trackers_tracker__WEBPACK_IMPORTED_MODULE_2__.lt.EXIST_BUT_MISSING_SLOT;
           const main = async function() {
-            const settings = (0, _settings__WEBPACK_IMPORTED_MODULE_2__.G)();
+            const settings = (0, _settings__WEBPACK_IMPORTED_MODULE_3__.G)();
             const skippedReleaseGroups = parseSkippedReleaseGroups(settings.skippedReleaseGroups);
             setUpLogger(settings.debug);
             common_logger__WEBPACK_IMPORTED_MODULE_0__.k.info("Init User script");
@@ -101,22 +248,24 @@
             const url = window.location.href;
             let sourceTracker = null;
             let targetTrackers = [];
-            Object.keys(_trackers__WEBPACK_IMPORTED_MODULE_3__).forEach((trackerName => {
-              const trackerImplementation = new _trackers__WEBPACK_IMPORTED_MODULE_3__[trackerName];
+            Object.keys(_trackers__WEBPACK_IMPORTED_MODULE_4__).forEach((trackerName => {
+              const trackerImplementation = new _trackers__WEBPACK_IMPORTED_MODULE_4__[trackerName];
               if (trackerImplementation.canRun(url)) sourceTracker = trackerImplementation; else if (trackerImplementation.canBeUsedAsTarget()) targetTrackers.push(trackerImplementation);
             }));
             if (null == sourceTracker) return;
-            const select = (0, _utils_dom__WEBPACK_IMPORTED_MODULE_4__.WC)(targetTrackers.map((tracker => tracker.name())));
-            select.addEventListener("change", (async () => {
-              let answer = confirm("Start searching new content for:  " + select.value);
+            const select = (0, _utils_dom__WEBPACK_IMPORTED_MODULE_5__.WC)(targetTrackers.map((tracker => tracker.name())));
+            const runSearch = async (targetName, continuingRun = false) => {
+              const answer = continuingRun || confirm("Start searching new content for:  " + targetName);
               if (answer) {
-                const targetTracker = targetTrackers.find((tracker => tracker.name() === select.value));
+                const targetTracker = targetTrackers.find((tracker => tracker.name() === targetName));
+                if (!targetTracker) return;
+                if (!continuingRun && settings.autoAdvancePages) await (0, _automation__WEBPACK_IMPORTED_MODULE_6__.bU)(targetName);
                 let i = 1;
                 let newContent = 0;
                 let requestGenerator = sourceTracker.getSearchRequest();
                 const metadata = (await requestGenerator.next()).value;
-                (0, _utils_dom__WEBPACK_IMPORTED_MODULE_4__.X_)();
-                (0, _utils_dom__WEBPACK_IMPORTED_MODULE_4__.I5)(metadata.total);
+                (0, _utils_dom__WEBPACK_IMPORTED_MODULE_5__.X_)();
+                (0, _utils_dom__WEBPACK_IMPORTED_MODULE_5__.I5)(metadata.total);
                 common_logger__WEBPACK_IMPORTED_MODULE_0__.k.debug("[{0}] Parsing titles to check", sourceTracker.name());
                 for await (const item of requestGenerator) {
                   if (null == item) continue;
@@ -128,39 +277,46 @@
                       hideTorrents(request);
                       continue;
                     }
-                    if (settings.useCache && request.imdbId && (0, _utils_cache__WEBPACK_IMPORTED_MODULE_5__.ff)(targetTracker.name(), request.imdbId)) {
+                    if (settings.useCache && request.imdbId && (0, _utils_cache__WEBPACK_IMPORTED_MODULE_7__.ff)(targetTracker.name(), request.imdbId)) {
                       common_logger__WEBPACK_IMPORTED_MODULE_0__.k.debug("Title exists in target tracker, found using cache");
                       hideTorrents(request);
                       continue;
                     }
-                    await (0, common_http__WEBPACK_IMPORTED_MODULE_6__._v)(targetTracker.waitTimeInMillisBetweenRequest());
+                    await (0, common_http__WEBPACK_IMPORTED_MODULE_8__._v)(targetTracker.waitTimeInMillisBetweenRequest());
                     const response = await targetTracker.search(request);
                     common_logger__WEBPACK_IMPORTED_MODULE_0__.k.debug("Search response: {0}", response);
-                    if (response == _trackers_tracker__WEBPACK_IMPORTED_MODULE_7__.lt.EXIST || response == _trackers_tracker__WEBPACK_IMPORTED_MODULE_7__.lt.NOT_ALLOWED) {
-                      if (request.imdbId) await (0, _utils_cache__WEBPACK_IMPORTED_MODULE_5__.se)(targetTracker.name(), request.imdbId);
+                    if (response == _trackers_tracker__WEBPACK_IMPORTED_MODULE_2__.lt.EXIST || response == _trackers_tracker__WEBPACK_IMPORTED_MODULE_2__.lt.NOT_ALLOWED) {
+                      if (request.imdbId) await (0, _utils_cache__WEBPACK_IMPORTED_MODULE_7__.se)(targetTracker.name(), request.imdbId);
                       hideTorrents(request);
-                    } else if (response == _trackers_tracker__WEBPACK_IMPORTED_MODULE_7__.lt.NOT_LOGGED_IN) {
+                    } else if (response == _trackers_tracker__WEBPACK_IMPORTED_MODULE_2__.lt.NOT_LOGGED_IN) {
                       alert(`You are not logged in ${targetTracker.name()}`);
                       break;
                     } else {
                       newContent++;
-                      (0, _utils_dom__WEBPACK_IMPORTED_MODULE_4__.t)(newContent);
-                      if (response == _trackers_tracker__WEBPACK_IMPORTED_MODULE_7__.lt.MAYBE_NOT_EXIST) {
+                      (0, _utils_dom__WEBPACK_IMPORTED_MODULE_5__.t)(newContent);
+                      if (canPerformTorrentAction(response)) try {
+                        const actioned = await (0, _automation__WEBPACK_IMPORTED_MODULE_6__.gW)(request, settings);
+                        if (actioned > 0) common_logger__WEBPACK_IMPORTED_MODULE_0__.k.info("Performed {0} configured torrent action(s)", actioned);
+                      } catch (e) {
+                        console.trace("Unable to perform configured torrent action", e);
+                        request.dom[0].setAttribute("title", `Torrent action failed: ${e.message}`);
+                      }
+                      if (response == _trackers_tracker__WEBPACK_IMPORTED_MODULE_2__.lt.MAYBE_NOT_EXIST) {
                         request.dom[0].setAttribute("title", "Title may not exist on target tracker");
                         request.dom[0].style.border = "2px solid #9b59b6";
-                      } else if (response == _trackers_tracker__WEBPACK_IMPORTED_MODULE_7__.lt.NOT_EXIST_WITH_REQUEST) {
+                      } else if (response == _trackers_tracker__WEBPACK_IMPORTED_MODULE_2__.lt.NOT_EXIST_WITH_REQUEST) {
                         request.dom[0].setAttribute("title", "Title was not found and has matching requests");
                         request.dom[0].style.border = "2px solid #2ecc71";
-                      } else if (response == _trackers_tracker__WEBPACK_IMPORTED_MODULE_7__.lt.MAYBE_NOT_EXIST_WITH_REQUEST) {
+                      } else if (response == _trackers_tracker__WEBPACK_IMPORTED_MODULE_2__.lt.MAYBE_NOT_EXIST_WITH_REQUEST) {
                         request.dom[0].setAttribute("title", "Title may not exists and there are matching requests");
                         request.dom[0].style.border = "2px solid #e67e22";
-                      } else if (response == _trackers_tracker__WEBPACK_IMPORTED_MODULE_7__.lt.NOT_CHECKED) {
+                      } else if (response == _trackers_tracker__WEBPACK_IMPORTED_MODULE_2__.lt.NOT_CHECKED) {
                         request.dom[0].setAttribute("title", "Title was not checked on target tracker");
                         request.dom[0].style.border = "2px solid #e74c3c";
-                      } else if (response == _trackers_tracker__WEBPACK_IMPORTED_MODULE_7__.lt.NOT_EXIST) {
+                      } else if (response == _trackers_tracker__WEBPACK_IMPORTED_MODULE_2__.lt.NOT_EXIST) {
                         request.dom[0].setAttribute("title", "Title was not found on target tracker");
                         request.dom[0].style.border = "2px solid #3498db";
-                      } else if (response == _trackers_tracker__WEBPACK_IMPORTED_MODULE_7__.lt.EXIST_BUT_MISSING_SLOT) {
+                      } else if (response == _trackers_tracker__WEBPACK_IMPORTED_MODULE_2__.lt.EXIST_BUT_MISSING_SLOT) {
                         request.dom[0].setAttribute("title", "Title exists but there is an available slot on target tracker");
                         request.dom[0].style.border = "2px solid #ff00ff";
                       }
@@ -171,17 +327,26 @@
                     request.dom[0].setAttribute("title", "Title was not checked due to an error");
                     request.dom[0].style.border = "2px solid red";
                   } finally {
-                    (0, _utils_dom__WEBPACK_IMPORTED_MODULE_4__.tx)(i++);
+                    (0, _utils_dom__WEBPACK_IMPORTED_MODULE_5__.tx)(i++);
                   }
                 }
-                (0, _utils_cache__WEBPACK_IMPORTED_MODULE_5__.sA)();
+                (0, _utils_cache__WEBPACK_IMPORTED_MODULE_7__.sA)();
+                const run = await (0, _automation__WEBPACK_IMPORTED_MODULE_6__.D9)();
+                if (run?.targetTrackerName === targetName) if (0 === metadata.total || !await (0, 
+                _automation__WEBPACK_IMPORTED_MODULE_6__.j0)(run, settings)) await (0, _automation__WEBPACK_IMPORTED_MODULE_6__.VR)();
               }
-            }));
+            };
+            select.addEventListener("change", (() => void runSearch(select.value)));
+            const automationRun = await (0, _automation__WEBPACK_IMPORTED_MODULE_6__.D9)();
+            if (automationRun) {
+              select.value = automationRun.targetTrackerName;
+              runSearch(automationRun.targetTrackerName, true);
+            }
             sourceTracker.insertTrackersSelect(select);
           };
-          (0, common_dom__WEBPACK_IMPORTED_MODULE_8__.$f)();
+          (0, common_dom__WEBPACK_IMPORTED_MODULE_9__.$f)();
           main().catch((e => {
-            (0, common_dom__WEBPACK_IMPORTED_MODULE_8__.x2)(e.message);
+            (0, common_dom__WEBPACK_IMPORTED_MODULE_9__.x2)(e.message);
           }));
           let currentUrl = document.location.href;
           const observer = new MutationObserver((() => {
@@ -215,7 +380,15 @@
         debug: false,
         sizeDifferenceThreshold: 1.2,
         skippedReleaseGroups: "",
-        skipUnknownStreamingProviders: false
+        skipUnknownStreamingProviders: false,
+        autoAdvancePages: false,
+        maxAutoPages: 0,
+        torrentAction: "none",
+        qBittorrentUrl: "",
+        qBittorrentUsername: "",
+        qBittorrentPassword: "",
+        quiUrl: "",
+        quiApiKey: ""
       };
       GM_config.init({
         id: "find-unique-titles-settings",
@@ -246,6 +419,47 @@
             type: "checkbox",
             default: defaultConfig.skipUnknownStreamingProviders
           },
+          autoAdvancePages: {
+            label: "Automatically continue to the next page",
+            type: "checkbox",
+            default: defaultConfig.autoAdvancePages
+          },
+          maxAutoPages: {
+            label: "Maximum additional pages (0 = no limit)",
+            type: "int",
+            default: defaultConfig.maxAutoPages
+          },
+          torrentAction: {
+            label: "Action for confirmed unique torrents",
+            type: "select",
+            options: [ "none", "download", "rescue", "raindrop", "qui-paused", "qbittorrent-paused" ],
+            default: defaultConfig.torrentAction
+          },
+          qBittorrentUrl: {
+            label: "qBittorrent Web UI URL (for qbittorrent-paused)",
+            type: "text",
+            default: defaultConfig.qBittorrentUrl
+          },
+          qBittorrentUsername: {
+            label: "qBittorrent username (optional)",
+            type: "text",
+            default: defaultConfig.qBittorrentUsername
+          },
+          qBittorrentPassword: {
+            label: "qBittorrent password (optional)",
+            type: "password",
+            default: defaultConfig.qBittorrentPassword
+          },
+          quiUrl: {
+            label: "qui instance URL (ends in /instances/<number>)",
+            type: "text",
+            default: defaultConfig.quiUrl
+          },
+          quiApiKey: {
+            label: "qui API key",
+            type: "password",
+            default: defaultConfig.quiApiKey
+          },
           debug: {
             label: "Debug mode",
             type: "checkbox",
@@ -256,7 +470,7 @@
         events: {
           open: function() {
             GM_config.frame.style.width = "500px";
-            GM_config.frame.style.height = "320px";
+            GM_config.frame.style.height = "620px";
             GM_config.frame.style.position = "fixed";
             GM_config.frame.style.left = "50%";
             GM_config.frame.style.top = "50%";
@@ -274,7 +488,15 @@
         debug: GM_config.get("debug"),
         sizeDifferenceThreshold: GM_config.get("sizeDifferenceThreshold"),
         skippedReleaseGroups: GM_config.get("skippedReleaseGroups"),
-        skipUnknownStreamingProviders: GM_config.get("skipUnknownStreamingProviders")
+        skipUnknownStreamingProviders: GM_config.get("skipUnknownStreamingProviders"),
+        autoAdvancePages: GM_config.get("autoAdvancePages"),
+        maxAutoPages: GM_config.get("maxAutoPages"),
+        torrentAction: GM_config.get("torrentAction"),
+        qBittorrentUrl: GM_config.get("qBittorrentUrl"),
+        qBittorrentUsername: GM_config.get("qBittorrentUsername"),
+        qBittorrentPassword: GM_config.get("qBittorrentPassword"),
+        quiUrl: GM_config.get("quiUrl"),
+        quiApiKey: GM_config.get("quiApiKey")
       });
     },
     387: (__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
@@ -1494,7 +1716,7 @@
           return _tracker__WEBPACK_IMPORTED_MODULE_0__.lt.NOT_CHECKED;
         }
         insertTrackersSelect(select) {
-          if (window.location.toString().indexOf("/filter") > -1) (0, common_dom__WEBPACK_IMPORTED_MODULE_5__.U_)(document.querySelector("ul.pagination"), select); else (0,
+          if (window.location.toString().indexOf("/filter") > -1) (0, common_dom__WEBPACK_IMPORTED_MODULE_5__.U_)(document.querySelector("ul.pagination"), select); else (0, 
           common_dom__WEBPACK_IMPORTED_MODULE_5__.U_)(document.querySelector(".form-torrent-search"), select);
         }
       }
@@ -1937,7 +2159,7 @@
         }
         async search(request) {
           let result;
-          if (request.category == _tracker__WEBPACK_IMPORTED_MODULE_0__.WD.MOVIE) result = await (0,
+          if (request.category == _tracker__WEBPACK_IMPORTED_MODULE_0__.WD.MOVIE) result = await (0, 
           common_searcher__WEBPACK_IMPORTED_MODULE_3__.yC)(common_trackers__WEBPACK_IMPORTED_MODULE_4__.FvT, {
             movie_title: request.title
           }); else result = await (0, common_searcher__WEBPACK_IMPORTED_MODULE_3__.yC)(common_trackers__WEBPACK_IMPORTED_MODULE_4__.YE3, {
@@ -2598,7 +2820,7 @@
             const category = parseCategory(element);
             let title;
             let year;
-            if (category == _tracker__WEBPACK_IMPORTED_MODULE_0__.WD.MOVIE) ({title, year} = (0,
+            if (category == _tracker__WEBPACK_IMPORTED_MODULE_0__.WD.MOVIE) ({title, year} = (0, 
             _utils_utils__WEBPACK_IMPORTED_MODULE_2__.GC)(element.querySelector(".name a").childNodes[0].textContent));
             const request = {
               torrents: [ {
@@ -3818,9 +4040,9 @@
     __webpack_modules__[moduleId](module, module.exports, __webpack_require__);
     return module.exports;
   }
-  webpackQueues = "function" == typeof Symbol ? Symbol("webpack queues") : "__webpack_queues__",
-  webpackExports = "function" == typeof Symbol ? Symbol("webpack exports") : "__webpack_exports__",
-  webpackError = "function" == typeof Symbol ? Symbol("webpack error") : "__webpack_error__",
+  webpackQueues = "function" == typeof Symbol ? Symbol("webpack queues") : "__webpack_queues__", 
+  webpackExports = "function" == typeof Symbol ? Symbol("webpack exports") : "__webpack_exports__", 
+  webpackError = "function" == typeof Symbol ? Symbol("webpack error") : "__webpack_error__", 
   resolveQueue = queue => {
     if (queue && !queue.d) {
       queue.d = 1;
@@ -3874,12 +4096,12 @@
       var promise = new Promise((resolve => {
         fn = () => resolve(getResult);
         fn.r = 0;
-        var fnQueue = q => q !== queue && !depQueues.has(q) && (depQueues.add(q), q && !q.d && (fn.r++,
+        var fnQueue = q => q !== queue && !depQueues.has(q) && (depQueues.add(q), q && !q.d && (fn.r++, 
         q.push(fn)));
         currentDeps.map((dep => dep[webpackQueues](fnQueue)));
       }));
       return fn.r ? promise : getResult();
-    }), (err => (err ? reject(promise[webpackError] = err) : outerResolve(exports),
+    }), (err => (err ? reject(promise[webpackError] = err) : outerResolve(exports), 
     resolveQueue(queue))));
     queue && (queue.d = 0);
   };
