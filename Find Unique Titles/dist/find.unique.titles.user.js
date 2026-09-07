@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name Find Unique Titles
 // @description Find unique titles to cross seed
-// @version 0.0.27
+// @version 0.0.28
 // @author Mea01
 // @match https://aither.cc/torrents?*
 // @match https://avistaz.to/movies*
@@ -3567,12 +3567,10 @@
         return null;
       };
       const parseTmdbIdFromLink = element => {
-        const tmdbLink = element.querySelector('[href*="https://www.themoviedb.org"]');
-        if (tmdbLink) {
-          let parts = tmdbLink.href.split("/");
-          return parts[parts.length - 1].trim().replaceAll(/\?.+/g, "");
-        }
-        return null;
+        const tmdbLink = element.querySelector('[href*="themoviedb.org"]');
+        if (!tmdbLink) return null;
+        const match = tmdbLink.href.match(/themoviedb\.org\/(?:movie|tv)\/(\d+)/i);
+        return match ? match[1] : null;
       };
       const parseImdbId = text => {
         if (!text) return null;

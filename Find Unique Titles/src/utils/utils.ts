@@ -28,13 +28,17 @@ export const parseImdbIdFromLink = (element: HTMLElement) => {
 
 export const parseTmdbIdFromLink = (element: HTMLElement) => {
   const tmdbLink: HTMLAnchorElement | null = element.querySelector(
-    '[href*="https://www.themoviedb.org"]'
+    '[href*="themoviedb.org"]'
   );
-  if (tmdbLink) {
-    let parts = tmdbLink.href.split("/");
-    return parts[parts.length - 1].trim().replaceAll(/\?.+/g, "");
-  }
-  return null;
+  if (!tmdbLink) return null;
+
+  // TMDB links normally include the title after the numeric ID, e.g.
+  // /movie/12345-some-title. Splitting on "/" used to return the slug as
+  // part of the ID and made the follow-up external-IDs lookup fail.
+  const match = tmdbLink.href.match(
+    /themoviedb\.org\/(?:movie|tv)\/(\d+)/i
+  );
+  return match ? match[1] : null;
 };
 
 export const parseImdbId = (text: string) => {
