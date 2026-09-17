@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aither - Sequential Bulk Torrent Downloader
 // @namespace    https://github.com/Moreasan/trackers-userscripts
-// @version      0.1.1
+// @version      0.2.0
 // @description  Sequentially downloads torrents from an Aither user torrent list, with pagination, throttling, progress, and copyable diagnostics.
 // @author       Moreasan
 // @match        https://aither.cc/users/*/torrents*
@@ -337,6 +337,51 @@
     updatePanel(state, "Finished");
   }
 
+  async function downloadTorrentFile(button, state) {
+    const downloadUrl = new URL(button.href, location.href).href;
+    const response = await fetch(downloadUrl, {
+      credentials: "include",
+      redirect: "follow",
+    });
+
+    const contentType = response.headers.get("content-type") || "unknown";
+    const contentLength = response.headers.get("content-length") || "unknown";
+
+    logEvent(state, "info", "Download response received", {
+      status: response.status,
+      contentType,
+      contentLength,
+      url: publicUrl(downloadUrl),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Download returned HTTP ${response.status}`);
+    }
+
+    if (/text\/html/i.test(contentType)) {
+      throw new Error("Download returned HTML instead of a torrent file");
+    }
+
+    const blob = await response.blob();
+    const disposition = response.headers.get("content-disposition") || "";
+    const filenameMatch = disposition.match(/filename\*?=(?:UTF-8''|\")?([^\";]+)/i);
+    const filename = filenameMatch
+      ? decodeURIComponent(filenameMatch[1].replace(/\"/g, ""))
+      : `aither-${location.pathname.split("/").pop()}.torrent`;
+
+    const objectUrl = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = objectUrl;
+    link.download = filename;
+    link.style.display = "none";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(objectUrl), 30_000);
+
+    return { status: response.status, contentType, filename, bytes: blob.size };
+  }
+
   async function processTorrentPage(state) {
     if (state.phase === "paused") return;
 
@@ -385,17 +430,34 @@
     }
 
     const torrentUrl = location.href;
-    button.click();
-    state.index++;
-    state.completed++;
-    state.phase = "waiting";
-    state.resumeAt = Date.now() + waitSeconds * 1000;
-    logEvent(state, "info", "Clicked download", {
-      torrent: publicUrl(torrentUrl),
-      waitSeconds,
-    });
+    state.phase = "downloading";
     saveState(state);
-    updatePanel(state, "Download clicked; waiting…");
+    updatePanel(state, "Fetching torrent file…");
+
+    try {
+      const result = await downloadTorrentFile(button, state);
+      state.index++;
+      state.completed++;
+      state.phase = "waiting";
+      state.resumeAt = Date.now() + waitSeconds * 1000;
+      logEvent(state, "info", "Torrent saved", {
+        torrent: publicUrl(torrentUrl),
+        filename: result.filename,
+        bytes: result.bytes,
+        waitSeconds,
+      });
+      saveState(state);
+      updatePanel(state, `Saved ${result.filename}; waiting…`);
+    } catch (error) {
+      state.phase = "stopped-download-error";
+      logEvent(state, "error", "Torrent download failed", {
+        torrent: publicUrl(torrentUrl),
+        error: String(error),
+      });
+      saveState(state);
+      updatePanel(state, `Stopped: ${error.message}`);
+      return;
+    }
 
     await sleep(waitSeconds * 1000);
     const latest = getState();
