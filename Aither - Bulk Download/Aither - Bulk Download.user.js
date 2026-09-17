@@ -8,6 +8,8 @@
 // @match        https://aither.cc/torrents/*
 // @grant        none
 // @run-at       document-idle
+// @downloadURL  https://raw.githubusercontent.com/DarkVader-cell/trackers-userscripts/master/Aither%20-%20Bulk%20Download/Aither%20-%20Bulk%20Download.user.js
+// @updateURL    https://raw.githubusercontent.com/DarkVader-cell/trackers-userscripts/master/Aither%20-%20Bulk%20Download/Aither%20-%20Bulk%20Download.user.js
 // ==/UserScript==
 
 (() => {
