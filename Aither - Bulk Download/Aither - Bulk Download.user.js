@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aither - Sequential Bulk Torrent Downloader
 // @namespace    https://github.com/Moreasan/trackers-userscripts
-// @version      0.1.0
+// @version      0.1.1
 // @description  Sequentially downloads torrents from an Aither user torrent list, with pagination, throttling, progress, and copyable diagnostics.
 // @author       Moreasan
 // @match        https://aither.cc/users/*/torrents*
@@ -62,7 +62,6 @@
     try {
       const url = new URL(raw, location.href);
       url.pathname = url.pathname.replace(/\/users\/[^/]+/, "/users/<redacted>");
-      url.search = "";
       return url.href;
     } catch {
       return "<invalid-url>";
@@ -358,7 +357,7 @@
     }
 
     const button = document.querySelector(
-      'a[href^="/torrents/download/"]'
+      'a[href*="/torrents/download/"]'
     );
 
     if (!button) {
