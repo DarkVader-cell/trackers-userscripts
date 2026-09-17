@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aither - Sequential Bulk Torrent Downloader
 // @namespace    https://github.com/Moreasan/trackers-userscripts
-// @version      0.2.2
+// @version      0.3.0
 // @description  Sequentially downloads torrents from an Aither user torrent list, with pagination, throttling, progress, and copyable diagnostics.
 // @author       Moreasan
 // @match        https://aither.cc/users/*/torrents*
@@ -167,13 +167,14 @@
   function updatePanel(state, status = "") {
     const panel = createPanel();
     const settings = getSettings();
-    const current = state?.queue?.[state?.index] || "";
+    const current = state?.queue?.[state?.index] || null;
+    const currentUrl = current?.downloadUrl || current?.detailUrl || current;
     const progress = state
       ? `Completed: ${state.completed}<br>
          Page: ${state.pageNumber}<br>
          Page queue: ${state.index}/${state.queue.length}<br>
          Pages visited: ${state.pagesSeen.length}<br>
-         Current: ${current ? publicUrl(current) : "none"}`
+         Current: ${currentUrl ? publicUrl(currentUrl) : "none"}`
       : `Delay: ${settings.delaySeconds}s`;
 
     panel.querySelector(".aither-status").textContent = status || state?.phase || "Idle";
@@ -223,7 +224,7 @@
     const settings = getSettings();
     const report = {
       script: "Aither - Sequential Torrent Downloader",
-      version: "0.2.0",
+      version: "0.3.0",
       generatedAt: new Date().toISOString(),
       page: publicUrl(location.href),
       userAgent: navigator.userAgent,
@@ -248,12 +249,12 @@
   }
 
   function start() {
-    const existing = getState();
-    if (!isListPage && !existing) {
+    if (!isListPage) {
       alert("Start the downloader from the filtered user torrents list page.");
       return;
     }
 
+    const existing = getState();
     if (existing && !confirm("Resume the existing downloader state?")) {
       clearState();
     }
@@ -274,7 +275,7 @@
     logEvent(state, "info", "Started or resumed", {
       page: publicUrl(location.href),
     });
-    if (isListPage) collectPage(state);
+    collectPage(state);
     continueProcessing(state);
   }
 
@@ -298,12 +299,21 @@
     if (state.pagesSeen.includes(pageUrl)) return;
 
     state.queue = [...document.querySelectorAll("a.user-torrents__name")]
-      .map(a => new URL(a.href, location.href).href)
-      .filter(url => !state.seen.includes(url));
+      .map(a => {
+        const detailUrl = new URL(a.href, location.href);
+        const id = detailUrl.pathname.split("/").pop();
+        return {
+          id,
+          title: a.textContent.trim(),
+          detailUrl: detailUrl.href,
+          downloadUrl: new URL(`/torrents/download/${id}`, location.origin).href,
+        };
+      })
+      .filter(item => item.id && !state.seen.includes(item.id));
     state.index = 0;
     state.pageNumber++;
     state.pagesSeen.push(pageUrl);
-    state.seen.push(...state.queue);
+    state.seen.push(...state.queue.map(item => item.id));
 
     const next = document.querySelector(".pagination__next a[href]");
     state.nextPage = next
@@ -334,10 +344,7 @@
     }
 
     if (state.index < state.queue.length) {
-      state.phase = "opening-detail";
-      saveState(state);
-      updatePanel(state, "Opening torrent detail…");
-      location.href = state.queue[state.index];
+      processQueueItem(state);
       return;
     }
 
@@ -357,19 +364,16 @@
     updatePanel(state, "Finished");
   }
 
-  function downloadTorrentFile(button, state) {
-    const downloadUrl = new URL(button.href, location.href).href;
-    const torrentId = location.pathname.split("/").pop();
-    const title = document.querySelector(".meta__title")?.textContent || "";
-    const safeTitle = title
+  function downloadTorrentFile(item, state) {
+    const safeTitle = item.title
       .replace(/\\s+/g, " ")
       .replace(/[^a-z0-9 ._-]/gi, "")
       .trim()
       .slice(0, 180);
-    const filename = `${safeTitle || `aither-${torrentId}`}.torrent`;
+    const filename = `${safeTitle || `aither-${item.id}`}.torrent`;
 
     logEvent(state, "info", "Starting Tampermonkey download", {
-      url: publicUrl(downloadUrl),
+      url: publicUrl(item.downloadUrl),
       filename,
     });
 
@@ -380,7 +384,7 @@
       }
 
       GM_download({
-        url: downloadUrl,
+        url: item.downloadUrl,
         name: filename,
         saveAs: false,
         onload: () => resolve({ status: 200, filename }),
@@ -390,16 +394,23 @@
     });
   }
 
-  async function processTorrentPage(state) {
+  async function processQueueItem(state) {
     if (state.phase === "paused") return;
 
-    // A reload during the cooldown must not click the same download twice.
     if (state.phase === "waiting" && state.resumeAt) {
       const remaining = Math.max(0, state.resumeAt - Date.now());
       updatePanel(state, `Cooldown: ${Math.ceil(remaining / 1000)}s remaining…`);
       await sleep(remaining);
       const latest = getState();
       if (latest && latest.phase !== "paused") continueProcessing(latest);
+      return;
+    }
+
+    if (state.phase === "downloading") {
+      state.phase = "stopped-uncertain-download";
+      logEvent(state, "error", "Reload interrupted a download; stopped to avoid a duplicate");
+      saveState(state);
+      updatePanel(state, "Stopped: download status uncertain");
       return;
     }
 
@@ -411,20 +422,7 @@
       return;
     }
 
-    const button = document.querySelector(
-      'a[href*="/torrents/download/"]'
-    );
-
-    if (!button) {
-      state.phase = "stopped-download-button-missing";
-      logEvent(state, "error", "Download button not found", {
-        page: publicUrl(location.href),
-      });
-      saveState(state);
-      updatePanel(state, "Stopped: download button not found");
-      return;
-    }
-
+    const item = state.queue[state.index];
     const settings = getSettings();
     let waitSeconds = settings.delaySeconds;
     if (settings.jitterSeconds > 0) {
@@ -437,21 +435,19 @@
       waitSeconds += settings.pauseSeconds;
     }
 
-    const torrentUrl = location.href;
     state.phase = "downloading";
     saveState(state);
-    updatePanel(state, "Fetching torrent file…");
+    updatePanel(state, `Downloading ${item.id}…`);
 
     try {
-      const result = await downloadTorrentFile(button, state);
+      const result = await downloadTorrentFile(item, state);
       state.index++;
       state.completed++;
       state.phase = "waiting";
       state.resumeAt = Date.now() + waitSeconds * 1000;
       logEvent(state, "info", "Torrent saved", {
-        torrent: publicUrl(torrentUrl),
+        torrent: publicUrl(item.detailUrl),
         filename: result.filename,
-        bytes: result.bytes,
         waitSeconds,
       });
       saveState(state);
@@ -459,7 +455,7 @@
     } catch (error) {
       state.phase = "stopped-download-error";
       logEvent(state, "error", "Torrent download failed", {
-        torrent: publicUrl(torrentUrl),
+        torrent: publicUrl(item.detailUrl),
         error: String(error),
       });
       saveState(state);
@@ -479,7 +475,5 @@
   if (current && isListPage) {
     collectPage(current);
     continueProcessing(current);
-  } else if (current && isTorrentPage) {
-    processTorrentPage(current);
   }
 })();
