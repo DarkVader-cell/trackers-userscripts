@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aither - Sequential Bulk Torrent Downloader
 // @namespace    https://github.com/Moreasan/trackers-userscripts
-// @version      0.3.0
+// @version      0.3.1
 // @description  Sequentially downloads torrents from an Aither user torrent list, with pagination, throttling, progress, and copyable diagnostics.
 // @author       Moreasan
 // @match        https://aither.cc/users/*/torrents*
@@ -224,7 +224,7 @@
     const settings = getSettings();
     const report = {
       script: "Aither - Sequential Torrent Downloader",
-      version: "0.3.0",
+      version: "0.3.1",
       generatedAt: new Date().toISOString(),
       page: publicUrl(location.href),
       userAgent: navigator.userAgent,
@@ -401,6 +401,9 @@
       const remaining = Math.max(0, state.resumeAt - Date.now());
       updatePanel(state, `Cooldown: ${Math.ceil(remaining / 1000)}s remaining…`);
       await sleep(remaining);
+      state.resumeAt = 0;
+      state.phase = "queued";
+      saveState(state);
       const latest = getState();
       if (latest && latest.phase !== "paused") continueProcessing(latest);
       return;
