@@ -1,12 +1,13 @@
 // ==UserScript==
 // @name         Aither - Sequential Bulk Torrent Downloader
 // @namespace    https://github.com/Moreasan/trackers-userscripts
-// @version      0.2.0
+// @version      0.2.2
 // @description  Sequentially downloads torrents from an Aither user torrent list, with pagination, throttling, progress, and copyable diagnostics.
 // @author       Moreasan
 // @match        https://aither.cc/users/*/torrents*
 // @match        https://aither.cc/torrents/*
-// @grant        none
+// @grant        GM_download
+// @connect      aither.cc
 // @run-at       document-idle
 // @downloadURL  https://raw.githubusercontent.com/DarkVader-cell/trackers-userscripts/master/Aither%20-%20Bulk%20Download/Aither%20-%20Bulk%20Download.user.js
 // @updateURL    https://raw.githubusercontent.com/DarkVader-cell/trackers-userscripts/master/Aither%20-%20Bulk%20Download/Aither%20-%20Bulk%20Download.user.js
@@ -58,6 +59,21 @@
     if (!raw) return null;
     if (/^https?:\/\//i.test(raw)) return raw;
     return new URL("/" + raw.replace(/^\/+/, ""), location.origin).href;
+  }
+
+  function paginationUrl(raw) {
+    const target = new URL(safeUrl(raw));
+    const current = new URL(location.href);
+
+    // Aither's pagination links omit the active filters. Preserve them while
+    // replacing only the page number.
+    for (const [key, value] of current.searchParams) {
+      if (key !== "page" && !target.searchParams.has(key)) {
+        target.searchParams.append(key, value);
+      }
+    }
+
+    return target.href;
   }
 
   function publicUrl(raw) {
@@ -232,12 +248,12 @@
   }
 
   function start() {
-    if (!isListPage) {
+    const existing = getState();
+    if (!isListPage && !existing) {
       alert("Start the downloader from the filtered user torrents list page.");
       return;
     }
 
-    const existing = getState();
     if (existing && !confirm("Resume the existing downloader state?")) {
       clearState();
     }
@@ -255,8 +271,10 @@
     };
 
     state.phase = "collecting";
-    logEvent(state, "info", "Started", { page: publicUrl(location.href) });
-    collectPage(state);
+    logEvent(state, "info", "Started or resumed", {
+      page: publicUrl(location.href),
+    });
+    if (isListPage) collectPage(state);
     continueProcessing(state);
   }
 
@@ -288,7 +306,9 @@
     state.seen.push(...state.queue);
 
     const next = document.querySelector(".pagination__next a[href]");
-    state.nextPage = next ? safeUrl(next.getAttribute("href")) : null;
+    state.nextPage = next
+      ? paginationUrl(next.getAttribute("href"))
+      : null;
     state.phase = "queued";
 
     logEvent(state, "info", "Collected page", {
@@ -337,49 +357,37 @@
     updatePanel(state, "Finished");
   }
 
-  async function downloadTorrentFile(button, state) {
+  function downloadTorrentFile(button, state) {
     const downloadUrl = new URL(button.href, location.href).href;
-    const response = await fetch(downloadUrl, {
-      credentials: "include",
-      redirect: "follow",
-    });
+    const torrentId = location.pathname.split("/").pop();
+    const title = document.querySelector(".meta__title")?.textContent || "";
+    const safeTitle = title
+      .replace(/\\s+/g, " ")
+      .replace(/[^a-z0-9 ._-]/gi, "")
+      .trim()
+      .slice(0, 180);
+    const filename = `${safeTitle || `aither-${torrentId}`}.torrent`;
 
-    const contentType = response.headers.get("content-type") || "unknown";
-    const contentLength = response.headers.get("content-length") || "unknown";
-
-    logEvent(state, "info", "Download response received", {
-      status: response.status,
-      contentType,
-      contentLength,
+    logEvent(state, "info", "Starting Tampermonkey download", {
       url: publicUrl(downloadUrl),
+      filename,
     });
 
-    if (!response.ok) {
-      throw new Error(`Download returned HTTP ${response.status}`);
-    }
+    return new Promise((resolve, reject) => {
+      if (typeof GM_download !== "function") {
+        reject(new Error("GM_download is unavailable; reinstall the updated script"));
+        return;
+      }
 
-    if (/text\/html/i.test(contentType)) {
-      throw new Error("Download returned HTML instead of a torrent file");
-    }
-
-    const blob = await response.blob();
-    const disposition = response.headers.get("content-disposition") || "";
-    const filenameMatch = disposition.match(/filename\*?=(?:UTF-8''|\")?([^\";]+)/i);
-    const filename = filenameMatch
-      ? decodeURIComponent(filenameMatch[1].replace(/\"/g, ""))
-      : `aither-${location.pathname.split("/").pop()}.torrent`;
-
-    const objectUrl = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = objectUrl;
-    link.download = filename;
-    link.style.display = "none";
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    setTimeout(() => URL.revokeObjectURL(objectUrl), 30_000);
-
-    return { status: response.status, contentType, filename, bytes: blob.size };
+      GM_download({
+        url: downloadUrl,
+        name: filename,
+        saveAs: false,
+        onload: () => resolve({ status: 200, filename }),
+        onerror: details => reject(new Error(`GM_download failed: ${JSON.stringify(details)}`)),
+        ontimeout: () => reject(new Error("GM_download timed out")),
+      });
+    });
   }
 
   async function processTorrentPage(state) {
