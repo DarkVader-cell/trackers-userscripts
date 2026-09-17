@@ -207,7 +207,7 @@
     const settings = getSettings();
     const report = {
       script: "Aither - Sequential Torrent Downloader",
-      version: "0.1.1",
+      version: "0.2.0",
       generatedAt: new Date().toISOString(),
       page: publicUrl(location.href),
       userAgent: navigator.userAgent,
