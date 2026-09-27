@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aither - Bonus Reward BBCode
 // @namespace    https://github.com/DarkVader-cell/trackers-userscripts
-// @version      0.3.0
+// @version      0.3.1
 // @description  Finds eligible unique Aither uploads and creates the BBCode reward post.
 // @author       Moreasan
 // @match        https://aither.cc/users/*/torrents*
@@ -333,7 +333,7 @@
       runState.nextPageUrl = next && !pages.has(next) ? next : null;
       checkpoint();
       onProgress(
-        `Scanning page ${pageNumber}: found ${pageUploads.length} upload(s); ${uploads.size} total…`
+        `Page ${pageNumber}: ${pageUploads.length} upload(s) on this page; ${uploads.size} collected across ${pages.size} page(s)…`
       );
       if (pauseAtCheckpoint("collecting")) return [...uploads.values()];
       currentUrl = runState.nextPageUrl;
