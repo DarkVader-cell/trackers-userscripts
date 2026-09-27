@@ -7,7 +7,8 @@ Tampermonkey userscript for generating the BBCode table used for Aither's unique
 1. Open your Aither user torrent list: `/users/<username>/torrents`.
 2. Click **Analyze uploads**.
 3. Review the skipped/needs-review list.
-4. Click **Copy BBCode** and paste the generated table into the contest post.
+4. Choose **50**, **100**, or **All** under **Rows per BBCode post**. Use **Previous**/**Next** to select the generated batch to paste.
+5. Click **Copy BBCode** and paste that table into the contest post.
 
 The script follows the list pagination, reads each torrent detail page, checks the release cutoff, limits results to movies/TV/documentaries, and checks the IMDb search results to make sure every matching torrent is one of your uploads.
 
@@ -20,7 +21,7 @@ The script follows the list pagination, reads each torrent detail page, checks t
 
 Uploads without an IMDb ID, unreadable metadata, or a 2023 release without a month are shown under **Skipped / needs review** rather than being claimed automatically.
 
-The script uses a small delay between requests and does not attempt to bypass Aither rate limits.
+The script uses a small delay between requests and does not attempt to bypass Aither rate limits. It filters ineligible titles from their names before loading a detail page, so detail requests are limited to otherwise eligible titles whose IMDb ID is unavailable on the listing.
 
 ## Publishing a release
 

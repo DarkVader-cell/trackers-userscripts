@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aither - Bonus Reward BBCode
 // @namespace    https://github.com/DarkVader-cell/trackers-userscripts
-// @version      0.4.1
+// @version      0.5.0
 // @description  Finds eligible unique Aither uploads and creates the BBCode reward post.
 // @author       Moreasan
 // @match        https://aither.cc/users/*/torrents*
@@ -63,6 +63,9 @@
     pageReports: {},
     pageSignatures: {},
     errors: [],
+    rows: [],
+    batchSize: 100,
+    batchIndex: 0,
     bbcode: "",
     total: 0,
     updatedAt: new Date().toISOString(),
@@ -531,7 +534,7 @@
     };
   };
 
-  const buildBbcode = (rows) => {
+  const buildBbcode = (rows, startNumber = 1) => {
     const lines = [
       "[table]",
       "[tr]",
@@ -546,7 +549,7 @@
       total += row.reward;
       lines.push(
         "[tr]",
-        `[td]${index + 1}[/td]`,
+        `[td]${startNumber + index}[/td]`,
         `[td][url=${row.url}]${escapeBbcode(row.title)}[/url][/td]`,
         `[td]${row.reward / 1000}k BON[/td]`,
         "[/tr]",
@@ -563,6 +566,52 @@
       "[/table]"
     );
     return { text: lines.join("\n"), total };
+  };
+
+  const batchCount = () => {
+    const rows = runState?.rows || [];
+    if (!rows.length) return 0;
+    return runState.batchSize === "all"
+      ? 1
+      : Math.ceil(rows.length / Number(runState.batchSize || 100));
+  };
+
+  const currentBatch = () => {
+    const rows = runState?.rows || [];
+    const size =
+      runState?.batchSize === "all"
+        ? rows.length
+        : Number(runState?.batchSize || 100);
+    const count = batchCount();
+    const index = Math.min(
+      Math.max(0, runState?.batchIndex || 0),
+      Math.max(0, count - 1)
+    );
+    const start = index * size;
+    return { rows: rows.slice(start, start + size), start, index, count };
+  };
+
+  const renderBatch = (panel = createPanel()) => {
+    if (!runState?.rows?.length) {
+      generated = "";
+      panel.querySelector("[data-output]").value = "";
+      panel.querySelector("[data-batch-status]").textContent =
+        "No qualifying titles in this run.";
+      return;
+    }
+    const batch = currentBatch();
+    const bbcode = buildBbcode(batch.rows, batch.start + 1);
+    generated = bbcode.text;
+    runState.batchIndex = batch.index;
+    runState.bbcode = generated;
+    checkpoint();
+    panel.querySelector("[data-output]").value = generated;
+    panel.querySelector("[data-batch-size]").value = String(
+      runState.batchSize || 100
+    );
+    panel.querySelector("[data-batch-status]").textContent = `Batch ${
+      batch.index + 1
+    }/${batch.count}: ${batch.rows.length} title(s), ${bbcode.total} BON.`;
   };
 
   const pageReportText = () =>
@@ -591,6 +640,18 @@
         <button data-action="reset">Reset</button>
         <button data-action="copy" disabled>Copy BBCode</button>
       </div>
+      <div class="aither-bonus-batches">
+        <label>Rows per BBCode post
+          <select data-batch-size>
+            <option value="50">50</option>
+            <option value="100" selected>100</option>
+            <option value="all">All</option>
+          </select>
+        </label>
+        <button data-action="previous-batch">Previous</button>
+        <button data-action="next-batch">Next</button>
+        <span data-batch-status></span>
+      </div>
       <textarea data-output readonly placeholder="Generated BBCode will appear here…"></textarea>
       <pre data-pages></pre>
       <details><summary>Skipped / needs review</summary><pre data-errors></pre></details>
@@ -601,6 +662,9 @@
       #${PANEL_ID} strong { display:block; margin-bottom:6px; }
       #${PANEL_ID} button { margin:2px 4px 6px 0; padding:5px 8px; cursor:pointer; }
       #${PANEL_ID} button:disabled { cursor:default; opacity:.6; }
+      #${PANEL_ID} .aither-bonus-batches { margin:3px 0 7px; }
+      #${PANEL_ID} .aither-bonus-batches select { margin:0 5px; }
+      #${PANEL_ID} [data-batch-status] { color:#b8d7ff; }
       #${PANEL_ID} textarea { width:100%; height:170px; box-sizing:border-box; resize:vertical; color:#111; }
       #${PANEL_ID} pre { max-height:130px; overflow:auto; white-space:pre-wrap; color:#ffcccb; }
       #${PANEL_ID} [data-pages] { color:#b8d7ff; margin:7px 0 0; }
@@ -622,6 +686,15 @@
     panel
       .querySelector('[data-action="copy"]')
       .addEventListener("click", copyBbcode);
+    panel
+      .querySelector("[data-batch-size]")
+      .addEventListener("change", changeBatchSize);
+    panel
+      .querySelector('[data-action="previous-batch"]')
+      .addEventListener("click", () => changeBatch(-1));
+    panel
+      .querySelector('[data-action="next-batch"]')
+      .addEventListener("click", () => changeBatch(1));
     restorePanelState(panel);
     return panel;
   };
@@ -641,6 +714,10 @@
     const pauseButton = panel.querySelector('[data-action="pause"]');
     const stopButton = panel.querySelector('[data-action="stop"]');
     const copyButton = panel.querySelector('[data-action="copy"]');
+    const batchSelect = panel.querySelector("[data-batch-size]");
+    const previousBatch = panel.querySelector('[data-action="previous-batch"]');
+    const nextBatch = panel.querySelector('[data-action="next-batch"]');
+    const batch = currentBatch();
 
     analyzeButton.disabled = runActive;
     analyzeButton.textContent =
@@ -648,6 +725,9 @@
     pauseButton.disabled = !working;
     stopButton.disabled = !working;
     copyButton.disabled = !generated;
+    batchSelect.disabled = runActive || !runState?.rows?.length;
+    previousBatch.disabled = runActive || batch.index <= 0;
+    nextBatch.disabled = runActive || batch.index >= batch.count - 1;
     if (!hasSavedRun) analyzeButton.textContent = "Analyze uploads";
   };
 
@@ -680,8 +760,9 @@
       checkpoint();
     }
     generated = runState.bbcode || "";
-    panel.querySelector("[data-output]").value = generated;
     panel.querySelector("[data-pages]").textContent = pageReportText();
+    if (runState.rows?.length) renderBatch(panel);
+    else panel.querySelector("[data-output]").value = generated;
     panel.querySelector("[data-errors]").textContent = runState.errors?.length
       ? runState.errors.join("\n")
       : "None";
@@ -701,6 +782,28 @@
       ).toLocaleString()}.`;
     }
     updatePanelControls(panel);
+  };
+
+  const changeBatchSize = (event) => {
+    if (!runState?.rows?.length || runActive) return;
+    runState.batchSize =
+      event.currentTarget.value === "all"
+        ? "all"
+        : Number(event.currentTarget.value);
+    runState.batchIndex = 0;
+    renderBatch();
+    updatePanelControls();
+  };
+
+  const changeBatch = (direction) => {
+    if (!runState?.rows?.length || runActive) return;
+    const batch = currentBatch();
+    runState.batchIndex = Math.min(
+      Math.max(0, batch.index + direction),
+      Math.max(0, batch.count - 1)
+    );
+    renderBatch();
+    updatePanelControls();
   };
 
   const copyBbcode = async () => {
@@ -737,16 +840,18 @@
     generated = "";
     const panel = createPanel();
     panel.querySelector("[data-output]").value = "";
+    panel.querySelector("[data-batch-status]").textContent = "";
+    panel.querySelector("[data-pages]").textContent = "";
     panel.querySelector("[data-errors]").textContent = "";
     panel.querySelector(".aither-bonus-status").textContent =
       "Ready. Open this on your user torrent list.";
     updatePanelControls(panel);
   };
 
-  const finishAnalysis = (panel, rows, bbcode, groups) => {
-    generated = bbcode.text;
-    runState.bbcode = generated;
-    runState.total = bbcode.total;
+  const finishAnalysis = (panel, rows, groups) => {
+    runState.rows = rows;
+    runState.batchIndex = 0;
+    runState.total = rows.reduce((total, row) => total + row.reward, 0);
     runState.phase = "complete";
     runState.errors = [...new Set(runState.errors)];
     for (const group of groups) {
@@ -754,13 +859,13 @@
       runState.reportedGroups[group[0].imdbId] = stats;
     }
     checkpoint();
-    panel.querySelector("[data-output]").value = generated;
     panel.querySelector("[data-pages]").textContent = pageReportText();
+    renderBatch(panel);
     panel.querySelector("[data-errors]").textContent = runState.errors.length
       ? runState.errors.join("\n")
       : "None";
     setStatus(
-      `Done: ${rows.length} unique title(s), total ${bbcode.total} BON.`
+      `Done: ${rows.length} unique title(s), total ${runState.total} BON.`
     );
   };
 
@@ -778,6 +883,21 @@
       onProgress(`Reading upload details ${index + 1}/${uploads.length}…`);
       try {
         const titleItem = parseTitleOnly(upload);
+        const eligibleType = ["Movie", "TV", "Documentary"].includes(
+          titleItem.category
+        );
+        if (!releaseIsEligible(titleItem.release) || !eligibleType) {
+          runState.detailProcessed[upload.id] = true;
+          checkpoint();
+          if (isHalted()) {
+            runState.resumePhase = "reading-details";
+            checkpoint();
+            return false;
+          }
+          if (index % 25 === 0) await sleep(0);
+          continue;
+        }
+
         let item;
         const cached = detailCache[upload.url];
         if (cached || upload.imdbId) {
@@ -790,16 +910,13 @@
         } else {
           const detail = await fetchDocument(upload.url);
           item = parseTorrent(upload, detail);
-          detailCache[upload.url] = item;
+          // Cache only the stable ID; title-derived data is recalculated.
+          detailCache[upload.url] = { imdbId: item.imdbId };
           saveDetailCache(detailCache);
         }
-        if (
-          releaseIsEligible(item.release) &&
-          ["Movie", "TV", "Documentary"].includes(item.category) &&
-          item.imdbId
-        ) {
+        if (item.imdbId) {
           parsedById.set(upload.id, item);
-        } else if (releaseIsEligible(item.release) && !item.imdbId) {
+        } else {
           runState.errors.push(
             `${item.title}: IMDb ID not found; uniqueness could not be checked.`
           );
@@ -830,6 +947,7 @@
       runState = newState();
       generated = "";
       panel.querySelector("[data-output]").value = "";
+      panel.querySelector("[data-batch-status]").textContent = "";
       panel.querySelector("[data-pages]").textContent = "";
       panel.querySelector("[data-errors]").textContent = "";
       checkpoint();
@@ -841,11 +959,13 @@
       runState.pagesSeen = [];
       runState.pageReports = {};
       runState.pageSignatures = {};
+      runState.rows = [];
       runState.bbcode = "";
       runState.total = 0;
       runState.errors = [];
       generated = "";
       panel.querySelector("[data-output]").value = "";
+      panel.querySelector("[data-batch-status]").textContent = "";
       panel.querySelector("[data-pages]").textContent = "";
       panel.querySelector("[data-errors]").textContent = "";
       checkpoint();
@@ -897,7 +1017,7 @@
           runState.pageReports[page].qualified = qualified;
       }
       checkpoint();
-      finishAnalysis(panel, rows, buildBbcode(rows), result.unique);
+      finishAnalysis(panel, rows, result.unique);
     } catch (error) {
       if (runState) {
         runState.errors.push(error.message);
