@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aither - Bonus Reward BBCode
 // @namespace    https://github.com/DarkVader-cell/trackers-userscripts
-// @version      0.2.0
+// @version      0.2.1
 // @description  Finds eligible unique Aither uploads and creates the BBCode reward post.
 // @author       Moreasan
 // @match        https://aither.cc/users/*/torrents*
@@ -87,8 +87,24 @@
   };
 
   const absoluteUrl = (value, base = location.href) => {
+    const raw = String(value || "").trim();
+    if (!raw) return null;
+    // Aither sometimes emits `users/name/torrents?page=N` without the
+    // leading slash. Treat those links as origin-relative, not page-relative.
+    const candidate =
+      /^(?:https?:)?\/\//i.test(raw) || /^[/?#]/.test(raw)
+        ? raw
+        : `/${raw.replace(/^\.\//, "")}`;
     try {
-      return new URL(value, base).href;
+      const url = new URL(candidate, base);
+      // Repair checkpoints created by the old pagination resolver.
+      while (/^\/users\/([^/]+)\/users\/\1(?=\/|$)/i.test(url.pathname)) {
+        url.pathname = url.pathname.replace(
+          /^\/users\/([^/]+)\/users\/\1(?=\/|$)/i,
+          "/users/$1"
+        );
+      }
+      return url.href;
     } catch {
       return null;
     }
@@ -230,7 +246,7 @@
     return category || "";
   };
 
-  const getTorrentLinks = (root) => {
+  const getTorrentLinks = (root, base = location.href) => {
     const links = [...root.querySelectorAll("a[href]")];
     const items = new Map();
     for (const link of links) {
@@ -245,7 +261,7 @@
       if (!title || items.has(id)) continue;
       items.set(id, {
         id,
-        url: absoluteUrl(link.href),
+        url: absoluteUrl(link.getAttribute("href") || link.href, base),
         title,
         rowText,
       });
@@ -253,11 +269,13 @@
     return [...items.values()];
   };
 
-  const nextPageUrl = (root) => {
+  const nextPageUrl = (root, base = location.href) => {
     const link = root.querySelector(
       ".pagination__next a[href], a[rel=next][href], .pagination a[aria-label*='Next' i][href]"
     );
-    return link ? absoluteUrl(link.href) : null;
+    return link
+      ? absoluteUrl(link.getAttribute("href") || link.href, base)
+      : null;
   };
 
   const fetchDocument = async (url) => {
@@ -282,7 +300,7 @@
       runState.uploads.map((upload) => [upload.id, upload])
     );
     const pages = new Set(runState.pagesSeen);
-    let currentUrl = runState.nextPageUrl || location.href;
+    let currentUrl = absoluteUrl(runState.nextPageUrl || location.href);
     let currentDocument =
       currentUrl === location.href && !pages.has(currentUrl)
         ? firstDocument
@@ -295,11 +313,11 @@
       }
       if (!currentDocument) currentDocument = await fetchDocument(currentUrl);
       pages.add(currentUrl);
-      for (const upload of getTorrentLinks(currentDocument))
+      for (const upload of getTorrentLinks(currentDocument, currentUrl))
         uploads.set(upload.id, upload);
       runState.pagesSeen = [...pages];
       runState.uploads = [...uploads.values()];
-      const next = nextPageUrl(currentDocument);
+      const next = nextPageUrl(currentDocument, currentUrl);
       runState.nextPageUrl = next && !pages.has(next) ? next : null;
       checkpoint();
       onProgress(
