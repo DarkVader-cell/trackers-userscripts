@@ -29,3 +29,5 @@ The repository includes a GitHub Actions workflow. After committing the changes,
 ## Resume support
 
 Progress is checkpointed in `localStorage` after each page, torrent detail page, and uniqueness check. **Pause** stops at the current request, while **Stop** preserves the checkpoint. Reloading the page or reopening the user-torrent list lets you click **Resume** and continue without repeating completed work. **Reset** clears the saved analysis. Parsed torrent details are also cached locally to reduce repeat requests.
+
+The generated output contains the table only; it does not add the example `[quote=GraMyntrix]` wrapper. Pages are scanned sequentially, and the panel reports how many qualifying titles were found on each page. After a completed run, a later run keeps the checkpoints and reports only newly rewardable uploads; use **Reset** to intentionally start from scratch.

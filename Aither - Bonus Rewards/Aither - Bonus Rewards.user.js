@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aither - Bonus Reward BBCode
 // @namespace    https://github.com/DarkVader-cell/trackers-userscripts
-// @version      0.2.1
+// @version      0.3.0
 // @description  Finds eligible unique Aither uploads and creates the BBCode reward post.
 // @author       Moreasan
 // @match        https://aither.cc/users/*/torrents*
@@ -58,6 +58,8 @@
     detailProcessed: {},
     parsed: [],
     uniqueChecks: {},
+    reportedGroups: {},
+    pageReports: {},
     errors: [],
     bbcode: "",
     total: 0,
@@ -313,15 +315,25 @@
       }
       if (!currentDocument) currentDocument = await fetchDocument(currentUrl);
       pages.add(currentUrl);
-      for (const upload of getTorrentLinks(currentDocument, currentUrl))
-        uploads.set(upload.id, upload);
+      const pageNumber =
+        Number(new URL(currentUrl).searchParams.get("page")) || pages.size;
+      const pageUploads = getTorrentLinks(currentDocument, currentUrl).map(
+        (upload) => ({ ...upload, pageUrl: currentUrl, pageNumber })
+      );
+      for (const upload of pageUploads) uploads.set(upload.id, upload);
+      runState.pageReports[pageNumber] = {
+        pageNumber,
+        pageUrl: currentUrl,
+        uploads: pageUploads.length,
+        qualified: runState.pageReports[pageNumber]?.qualified || 0,
+      };
       runState.pagesSeen = [...pages];
       runState.uploads = [...uploads.values()];
       const next = nextPageUrl(currentDocument, currentUrl);
       runState.nextPageUrl = next && !pages.has(next) ? next : null;
       checkpoint();
       onProgress(
-        `Collected ${uploads.size} upload(s) from ${pages.size} page(s)…`
+        `Scanning page ${pageNumber}: found ${pageUploads.length} upload(s); ${uploads.size} total…`
       );
       if (pauseAtCheckpoint("collecting")) return [...uploads.values()];
       currentUrl = runState.nextPageUrl;
@@ -440,22 +452,51 @@
     return { unique, unresolved, paused: false };
   };
 
+  const groupStats = (group) => ({
+    qualities: [...new Set(group.map((item) => item.quality).filter(Boolean))],
+    fullDisc: group.filter((item) => item.fullDisc).length,
+    seasons: group.reduce((total, item) => total + item.seasons, 0),
+    uploadIds: group.map((item) => item.id),
+  });
+
   const calculateReward = (group) => {
-    const qualities = new Set(
-      group.map((item) => item.quality).filter(Boolean)
-    );
-    const seasons = group.reduce((total, item) => total + item.seasons, 0);
+    const stats = groupStats(group);
     const reward =
       BASE_REWARD +
-      Math.max(0, qualities.size - 1) * QUALITY_REWARD +
-      group.filter((item) => item.fullDisc).length * FULL_DISC_REWARD +
-      Math.max(0, seasons - 1) * EXTRA_SEASON_REWARD;
-    return { reward, qualities, seasons };
+      Math.max(0, stats.qualities.length - 1) * QUALITY_REWARD +
+      stats.fullDisc * FULL_DISC_REWARD +
+      Math.max(0, stats.seasons - 1) * EXTRA_SEASON_REWARD;
+    return {
+      reward,
+      qualities: new Set(stats.qualities),
+      seasons: stats.seasons,
+    };
+  };
+
+  const calculateIncrementalReward = (group) => {
+    const current = groupStats(group);
+    const previous = runState.reportedGroups[group[0].imdbId];
+    if (!previous) return { ...calculateReward(group), stats: current };
+
+    const previousQualityCount = previous.qualities?.length || 0;
+    const previousSeasons = previous.seasons || 0;
+    const reward =
+      (Math.max(0, current.qualities.length - 1) -
+        Math.max(0, previousQualityCount - 1)) *
+        QUALITY_REWARD +
+      (current.fullDisc - (previous.fullDisc || 0)) * FULL_DISC_REWARD +
+      (Math.max(0, current.seasons - 1) - Math.max(0, previousSeasons - 1)) *
+        EXTRA_SEASON_REWARD;
+    return {
+      reward: Math.max(0, reward),
+      qualities: new Set(current.qualities),
+      seasons: current.seasons,
+      stats: current,
+    };
   };
 
   const buildBbcode = (rows) => {
     const lines = [
-      "[quote=GraMyntrix]",
       "[table]",
       "[tr]",
       "[td]#[/td]",
@@ -488,6 +529,17 @@
     return { text: lines.join("\n"), total };
   };
 
+  const pageReportText = () =>
+    Object.values(runState?.pageReports || {})
+      .sort((a, b) => a.pageNumber - b.pageNumber)
+      .map(
+        (report) =>
+          `Page ${report.pageNumber}: ${
+            report.qualified || 0
+          } qualified title(s) from ${report.uploads} upload(s)`
+      )
+      .join("\n");
+
   const createPanel = () => {
     let panel = document.getElementById(PANEL_ID);
     if (panel) return panel;
@@ -504,6 +556,7 @@
         <button data-action="copy" disabled>Copy BBCode</button>
       </div>
       <textarea data-output readonly placeholder="Generated BBCode will appear here…"></textarea>
+      <pre data-pages></pre>
       <details><summary>Skipped / needs review</summary><pre data-errors></pre></details>
     `;
     const style = document.createElement("style");
@@ -514,6 +567,7 @@
       #${PANEL_ID} button:disabled { cursor:default; opacity:.6; }
       #${PANEL_ID} textarea { width:100%; height:170px; box-sizing:border-box; resize:vertical; color:#111; }
       #${PANEL_ID} pre { max-height:130px; overflow:auto; white-space:pre-wrap; color:#ffcccb; }
+      #${PANEL_ID} [data-pages] { color:#b8d7ff; margin:7px 0 0; }
     `;
     document.head.appendChild(style);
     document.body.appendChild(panel);
@@ -571,8 +625,12 @@
       updatePanelControls(panel);
       return;
     }
+    runState.reportedGroups ||= {};
+    runState.pageReports ||= {};
+    runState.errors ||= [];
     generated = runState.bbcode || "";
     panel.querySelector("[data-output]").value = generated;
+    panel.querySelector("[data-pages]").textContent = pageReportText();
     panel.querySelector("[data-errors]").textContent = runState.errors?.length
       ? runState.errors.join("\n")
       : "None";
@@ -634,14 +692,19 @@
     updatePanelControls(panel);
   };
 
-  const finishAnalysis = (panel, rows, bbcode) => {
+  const finishAnalysis = (panel, rows, bbcode, groups) => {
     generated = bbcode.text;
     runState.bbcode = generated;
     runState.total = bbcode.total;
     runState.phase = "complete";
     runState.errors = [...new Set(runState.errors)];
+    for (const group of groups) {
+      const stats = groupStats(group);
+      runState.reportedGroups[group[0].imdbId] = stats;
+    }
     checkpoint();
     panel.querySelector("[data-output]").value = generated;
+    panel.querySelector("[data-pages]").textContent = pageReportText();
     panel.querySelector("[data-errors]").textContent = runState.errors.length
       ? runState.errors.join("\n")
       : "None";
@@ -702,11 +765,27 @@
   async function analyze() {
     if (runActive) return;
     const panel = createPanel();
-    const saved = runState && runState.phase !== "complete";
+    const saved = Boolean(runState);
     if (!saved) {
       runState = newState();
       generated = "";
       panel.querySelector("[data-output]").value = "";
+      panel.querySelector("[data-pages]").textContent = "";
+      panel.querySelector("[data-errors]").textContent = "";
+      checkpoint();
+    } else if (runState.phase === "complete") {
+      // Keep detail/uniqueness checkpoints and previously reported rewards,
+      // but rescan pages for newly uploaded torrents only.
+      runState.phase = "collecting";
+      runState.nextPageUrl = location.href;
+      runState.pagesSeen = [];
+      runState.pageReports = {};
+      runState.bbcode = "";
+      runState.total = 0;
+      runState.errors = [];
+      generated = "";
+      panel.querySelector("[data-output]").value = "";
+      panel.querySelector("[data-pages]").textContent = "";
       panel.querySelector("[data-errors]").textContent = "";
       checkpoint();
     } else if (runState.phase === "paused" || runState.phase === "stopped") {
@@ -733,13 +812,31 @@
 
       const result = await makeUniqueRows(runState.parsed, setStatus);
       if (result.paused || isPaused() || runState.phase === "stopped") return;
+      const pageQualified = {};
       const rows = result.unique
         .map((group) => {
-          const reward = calculateReward(group);
+          const reward = calculateIncrementalReward(group);
+          if (reward.reward <= 0) return null;
+          const page =
+            group.find(
+              (item) =>
+                !runState.reportedGroups[group[0].imdbId]?.uploadIds?.includes(
+                  item.id
+                )
+            )?.pageNumber ||
+            group[0].pageNumber ||
+            "current";
+          pageQualified[page] = (pageQualified[page] || 0) + 1;
           return { title: group[0].title, url: group[0].url, ...reward };
         })
+        .filter(Boolean)
         .sort((a, b) => a.title.localeCompare(b.title));
-      finishAnalysis(panel, rows, buildBbcode(rows));
+      for (const [page, qualified] of Object.entries(pageQualified)) {
+        if (runState.pageReports[page])
+          runState.pageReports[page].qualified = qualified;
+      }
+      checkpoint();
+      finishAnalysis(panel, rows, buildBbcode(rows), result.unique);
     } catch (error) {
       if (runState) {
         runState.errors.push(error.message);
