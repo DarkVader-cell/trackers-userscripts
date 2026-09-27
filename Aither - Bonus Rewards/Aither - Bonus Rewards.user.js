@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aither - Bonus Reward BBCode
 // @namespace    https://github.com/DarkVader-cell/trackers-userscripts
-// @version      0.3.1
+// @version      0.4.0
 // @description  Finds eligible unique Aither uploads and creates the BBCode reward post.
 // @author       Moreasan
 // @match        https://aither.cc/users/*/torrents*
@@ -21,6 +21,7 @@
   const EXTRA_SEASON_REWARD = 10_000;
   const CUTOFF = new Date("2023-12-01T00:00:00Z");
   const REQUEST_DELAY_MS = 350;
+  const PAGE_SIZE = 25;
   const PANEL_ID = "aither-bonus-reward-panel";
   const STATE_KEY = "aither-bonus-reward-state-v1";
   const DETAIL_CACHE_KEY = "aither-bonus-reward-detail-cache-v1";
@@ -60,6 +61,7 @@
     uniqueChecks: {},
     reportedGroups: {},
     pageReports: {},
+    pageSignatures: {},
     errors: [],
     bbcode: "",
     total: 0,
@@ -236,6 +238,20 @@
     return release.year < 2023 || (release.year === 2023 && release.knownMonth);
   };
 
+  const categoryFromTitle = (title) => {
+    const value = String(title || "").toLowerCase();
+    if (/documentar/.test(value)) return "Documentary";
+    if (
+      /\b(tv|television|series)\b|\bs\d{1,2}(?:e\d{1,3})?\b|\bseason\s*\d/.test(
+        value
+      )
+    )
+      return "TV";
+    if (/\b(?:flac|mp3|album|ebook|audiobook|comic|game)\b/.test(value))
+      return "";
+    return "Movie";
+  };
+
   const categoryFrom = (root, text) => {
     const category = cleanText(
       root.querySelector(".torrent__category-link")?.textContent
@@ -266,18 +282,32 @@
         url: absoluteUrl(link.getAttribute("href") || link.href, base),
         title,
         rowText,
+        imdbId: parseImdbId(row),
       });
     }
     return [...items.values()];
   };
 
-  const nextPageUrl = (root, base = location.href) => {
+  const nextPageUrl = (root, base = location.href, currentCount = 0) => {
     const link = root.querySelector(
       ".pagination__next a[href], a[rel=next][href], .pagination a[aria-label*='Next' i][href]"
     );
-    return link
+    const linkedPage = link
       ? absoluteUrl(link.getAttribute("href") || link.href, base)
       : null;
+    if (linkedPage && linkedPage !== base) return linkedPage;
+
+    // Some Aither layouts omit the next link after only a few numbered pages.
+    // A full page means another page may exist, so continue deterministically.
+    if (currentCount < PAGE_SIZE) return null;
+    try {
+      const next = new URL(base);
+      const currentPage = Number(next.searchParams.get("page")) || 1;
+      next.searchParams.set("page", String(currentPage + 1));
+      return next.href;
+    } catch {
+      return null;
+    }
   };
 
   const fetchDocument = async (url) => {
@@ -320,6 +350,18 @@
       const pageUploads = getTorrentLinks(currentDocument, currentUrl).map(
         (upload) => ({ ...upload, pageUrl: currentUrl, pageNumber })
       );
+      const signature = pageUploads.map((upload) => upload.id).join(",");
+      if (
+        signature &&
+        runState.pageSignatures[signature] &&
+        runState.pageSignatures[signature] !== currentUrl
+      ) {
+        runState.nextPageUrl = null;
+        checkpoint();
+        onProgress(`Stopped: page ${pageNumber} repeated an earlier page.`);
+        return [...uploads.values()];
+      }
+      if (signature) runState.pageSignatures[signature] = currentUrl;
       for (const upload of pageUploads) uploads.set(upload.id, upload);
       runState.pageReports[pageNumber] = {
         pageNumber,
@@ -329,7 +371,7 @@
       };
       runState.pagesSeen = [...pages];
       runState.uploads = [...uploads.values()];
-      const next = nextPageUrl(currentDocument, currentUrl);
+      const next = nextPageUrl(currentDocument, currentUrl, pageUploads.length);
       runState.nextPageUrl = next && !pages.has(next) ? next : null;
       checkpoint();
       onProgress(
@@ -345,37 +387,27 @@
     return [...uploads.values()];
   };
 
-  const parseTorrent = (upload, detail) => {
-    const detailText = cleanText(detail.body?.textContent);
-    const nameElement = detail.querySelector(
-      ".torrent__name, .torrent__title, h1, meta[property='og:title']"
-    );
-    const rawTitle =
-      nameElement?.getAttribute?.("content") ||
-      nameElement?.textContent ||
-      upload.title;
-    const release =
-      parseReleaseDate(detail, rawTitle) ||
-      parseReleaseDate(detail, upload.rowText);
-    const year =
-      release?.year || parseYear(rawTitle) || parseYear(upload.title);
-    const displayTitle = parseDisplayTitle(rawTitle, year);
-    const metadataText = `${rawTitle} ${upload.title} ${detailText}`;
-    const category = categoryFrom(detail, metadataText);
-
+  const parseTitleOnly = (upload) => {
+    const rawTitle = cleanText(upload.title);
+    const year = parseYear(rawTitle);
+    const category = categoryFromTitle(rawTitle);
     return {
       ...upload,
       rawTitle,
-      title: displayTitle,
+      title: parseDisplayTitle(rawTitle, year),
       year,
-      release,
+      release: year ? { date: null, year, knownMonth: false } : null,
       category,
-      imdbId: parseImdbId(detail),
-      quality: parseQuality(metadataText),
-      fullDisc: isFullDisc(metadataText),
-      seasons: category === "TV" ? parseSeasonCount(metadataText) : 0,
+      quality: parseQuality(rawTitle),
+      fullDisc: isFullDisc(rawTitle),
+      seasons: category === "TV" ? parseSeasonCount(rawTitle) : 0,
     };
   };
+
+  const parseTorrent = (upload, detail) => ({
+    ...parseTitleOnly(upload),
+    imdbId: parseImdbId(detail) || upload.imdbId,
+  });
 
   const resultRows = (root) => [
     ...root.querySelectorAll(
@@ -627,6 +659,7 @@
     }
     runState.reportedGroups ||= {};
     runState.pageReports ||= {};
+    runState.pageSignatures ||= {};
     runState.errors ||= [];
     generated = runState.bbcode || "";
     panel.querySelector("[data-output]").value = generated;
@@ -726,8 +759,17 @@
       }
       onProgress(`Reading upload details ${index + 1}/${uploads.length}…`);
       try {
-        let item = detailCache[upload.url];
-        if (!item) {
+        const titleItem = parseTitleOnly(upload);
+        let item;
+        const cached = detailCache[upload.url];
+        if (cached || upload.imdbId) {
+          // All reward metadata comes from the upload title. The cache/detail
+          // page is only used to recover the IMDb ID for uniqueness checks.
+          item = {
+            ...titleItem,
+            imdbId: upload.imdbId || cached.imdbId,
+          };
+        } else {
           const detail = await fetchDocument(upload.url);
           item = parseTorrent(upload, detail);
           detailCache[upload.url] = item;
@@ -780,6 +822,7 @@
       runState.nextPageUrl = location.href;
       runState.pagesSeen = [];
       runState.pageReports = {};
+      runState.pageSignatures = {};
       runState.bbcode = "";
       runState.total = 0;
       runState.errors = [];
