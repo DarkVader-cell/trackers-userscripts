@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aither - Bonus Reward BBCode
 // @namespace    https://github.com/DarkVader-cell/trackers-userscripts
-// @version      0.4.0
+// @version      0.4.1
 // @description  Finds eligible unique Aither uploads and creates the BBCode reward post.
 // @author       Moreasan
 // @match        https://aither.cc/users/*/torrents*
@@ -288,6 +288,17 @@
     return [...items.values()];
   };
 
+  const numericNextPageUrl = (base) => {
+    try {
+      const next = new URL(base);
+      const currentPage = Number(next.searchParams.get("page")) || 1;
+      next.searchParams.set("page", String(currentPage + 1));
+      return next.href;
+    } catch {
+      return null;
+    }
+  };
+
   const nextPageUrl = (root, base = location.href, currentCount = 0) => {
     const link = root.querySelector(
       ".pagination__next a[href], a[rel=next][href], .pagination a[aria-label*='Next' i][href]"
@@ -300,14 +311,7 @@
     // Some Aither layouts omit the next link after only a few numbered pages.
     // A full page means another page may exist, so continue deterministically.
     if (currentCount < PAGE_SIZE) return null;
-    try {
-      const next = new URL(base);
-      const currentPage = Number(next.searchParams.get("page")) || 1;
-      next.searchParams.set("page", String(currentPage + 1));
-      return next.href;
-    } catch {
-      return null;
-    }
+    return numericNextPageUrl(base);
   };
 
   const fetchDocument = async (url) => {
@@ -661,6 +665,20 @@
     runState.pageReports ||= {};
     runState.pageSignatures ||= {};
     runState.errors ||= [];
+    const reports = Object.values(runState.pageReports);
+    const lastReport = reports
+      .sort((a, b) => a.pageNumber - b.pageNumber)
+      .at(-1);
+    if (
+      runState.phase === "reading-details" &&
+      !runState.nextPageUrl &&
+      lastReport?.uploads >= PAGE_SIZE
+    ) {
+      // Older checkpoints could stop collection when the next link vanished.
+      runState.phase = "collecting";
+      runState.nextPageUrl = numericNextPageUrl(lastReport.pageUrl);
+      checkpoint();
+    }
     generated = runState.bbcode || "";
     panel.querySelector("[data-output]").value = generated;
     panel.querySelector("[data-pages]").textContent = pageReportText();
