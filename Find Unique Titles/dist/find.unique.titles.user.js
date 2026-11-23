@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name Find Unique Titles
 // @description Find unique titles to cross seed
-// @version 0.0.28
+// @version 0.0.30
 // @author Mea01
 // @match https://aither.cc/torrents?*
 // @match https://avistaz.to/movies*
@@ -308,7 +308,8 @@
                       hideTorrents(request);
                       continue;
                     }
-                    if (settings.useCache && request.imdbId && (0, _utils_cache__WEBPACK_IMPORTED_MODULE_7__.ff)(targetTracker.name(), request.imdbId)) {
+                    if (settings.useCache && !targetTracker.releaseSpecificResults && request.imdbId && (0,
+                    _utils_cache__WEBPACK_IMPORTED_MODULE_7__.ff)(targetTracker.name(), request.imdbId)) {
                       common_logger__WEBPACK_IMPORTED_MODULE_0__.k.debug("Title exists in target tracker, found using cache");
                       hideTorrents(request);
                       continue;
@@ -317,7 +318,7 @@
                     const response = await targetTracker.search(request);
                     common_logger__WEBPACK_IMPORTED_MODULE_0__.k.debug("Search response: {0}", response);
                     if (response == _trackers_tracker__WEBPACK_IMPORTED_MODULE_2__.lt.EXIST || response == _trackers_tracker__WEBPACK_IMPORTED_MODULE_2__.lt.NOT_ALLOWED) {
-                      if (request.imdbId) await (0, _utils_cache__WEBPACK_IMPORTED_MODULE_7__.se)(targetTracker.name(), request.imdbId);
+                      if (request.imdbId && !targetTracker.releaseSpecificResults) await (0, _utils_cache__WEBPACK_IMPORTED_MODULE_7__.se)(targetTracker.name(), request.imdbId);
                       hideTorrents(request);
                     } else if (response == _trackers_tracker__WEBPACK_IMPORTED_MODULE_2__.lt.NOT_LOGGED_IN) {
                       alert(`You are not logged in ${targetTracker.name()}`);
@@ -355,6 +356,9 @@
                       } else if (response == _trackers_tracker__WEBPACK_IMPORTED_MODULE_2__.lt.NOT_EXIST) {
                         request.dom[0].setAttribute("title", "Title was not found on target tracker");
                         request.dom[0].style.border = "2px solid #3498db";
+                      } else if (response == _trackers_tracker__WEBPACK_IMPORTED_MODULE_2__.lt.POSSIBLE_MISSING_SLOT) {
+                        request.dom[0].setAttribute("title", "Possible DesiTorrents slot for at least one release. Verify quality, audio, and upload rules manually.");
+                        request.dom[0].style.border = "2px dashed #ff00ff";
                       } else if (response == _trackers_tracker__WEBPACK_IMPORTED_MODULE_2__.lt.EXIST_BUT_MISSING_SLOT) {
                         request.dom[0].setAttribute("title", "Title exists but there is an available slot on target tracker");
                         request.dom[0].style.border = "2px solid #ff00ff";
@@ -652,6 +656,7 @@
             const request = {
               torrents: [ {
                 size,
+                releaseName: torrentName,
                 tags: (0, _utils_utils__WEBPACK_IMPORTED_MODULE_1__.RN)(torrentName),
                 dom: element,
                 resolution: (0, _utils_utils__WEBPACK_IMPORTED_MODULE_1__.uV)(torrentName)
@@ -1246,6 +1251,178 @@
         }
       }
     },
+    690: (__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
+      __webpack_require__.d(__webpack_exports__, {
+        Z: () => DesiTorrents
+      });
+      const familyOf = ({name, type}) => {
+        if (/^(?:UHD(?: Remux)?|BD (?:25|50|Remux)|DVD (?:5|9|Remux)|CD|FLAC)$/i.test(type ?? "") || /\b(?:remux|untouched|complete[ ._-]+(?:uhd|blu[ ._-]*ray)|BD(?:25|50|66|100)|DVD[59])\b/i.test(name)) return "other";
+        if (/\bweb[ ._-]*rip\b/i.test(name) || /^webrip$/i.test(type ?? "")) return "webrip";
+        if (/\bweb[ ._-]*dl\b/i.test(name) || /^web[ -]?dl$/i.test(type ?? "")) return "web-dl";
+        if (/\bdvd(?:rip)?\b/i.test(name)) return "dvd";
+        if (/^encode$/i.test(type ?? "") || /\b(?:blu[ ._-]*ray|bdrip|hdtv)\b/i.test(name)) return "encode";
+      };
+      const resolutionOf = name => /\b(\d{3,4}[pi])\b/i.exec(name)?.[1]?.toLowerCase();
+      const codecOf = name => /\b(?:x265|h[ ._-]?265|hevc)\b/i.test(name) ? "hevc" : /\b(?:x264|h[ ._-]?264|avc)\b/i.test(name) ? "avc" : /\bav1\b/i.test(name) ? "av1" : void 0;
+      const cutOf = name => /\b(extended|theatrical|unrated|director'?s[ ._-]+cut)\b/i.exec(name)?.[1].toLowerCase().replace(/[ ._'-]/g, "");
+      const audioOf = name => /\b(?:multi(?:[ ._-]*audio)?|dubbed|dual[ ._-]+audio)\b/i.test(name) ? "dubbed" : void 0;
+      const providerOf = name => {
+        const token = /\b(AMZN|Amazon|NF|Netflix|DSNP|ATVP|HMAX|HULU|PCOK|PMTP|JIOHOTSTAR|HS)\b/i.exec(name)?.[1].toUpperCase();
+        return "AMAZON" === token ? "AMZN" : "NETFLIX" === token ? "NF" : token;
+      };
+      const hdr10Plus = name => /\bHDR10(?:\+|PLUS\b)/i.test(name);
+      const colourOf = name => {
+        if (/\b(?:dv(?:he)?|dovi|dolby[ ._-]+vision)[ ._-]*(?:p(?:rofile)?[ ._-]*)?0?8\b/i.test(name)) return "hdr";
+        if (/\b(?:dv(?:he)?|dovi|dolby[ ._-]+vision)[ ._-]*(?:p(?:rofile)?[ ._-]*)?0?5\b/i.test(name)) return "dv5";
+        if (/\b(?:dv|dovi|dvhe|dolby[ ._-]+vision)\b/i.test(name)) return;
+        if (hdr10Plus(name)) return "hdr10+";
+        if (/\bHDR(?:10)?\b/i.test(name)) return "hdr";
+        if (/\bSDR\b/i.test(name)) return "sdr";
+      };
+      function possibleDesiSlot(candidate, releases) {
+        const {name} = candidate;
+        const family = familyOf(candidate);
+        const res = resolutionOf(name);
+        const codec = codecOf(name);
+        const colour = colourOf(name);
+        const web = "web-dl" === family || "webrip" === family;
+        if (!releases.length || !family || "other" === family) return false;
+        const normalizedName = value => value.toLowerCase().replace(/[.\s_]+/g, " ").trim();
+        if (releases.some((release => normalizedName(release.name) === normalizedName(name)))) return false;
+        let capacity = 1;
+        if ("2160p" === res) {
+          if ("dvd" === family || !colour || "hdr10+" === colour && !web) return false;
+          if (!web && !/\b(?:true[ ._-]*hd|dts[ ._-]*hd[ ._-]*ma|flac|lpcm|pcm|dts[ ._-]*x)\b/i.test(name)) return false;
+        } else if (web || "encode" === family) {
+          if ("720p" !== res && "1080p" !== res) return false;
+          if (web && (colour && "sdr" !== colour || /\b(?:hdr|hdr10|dv|dovi|dvhe|dolby[ ._-]+vision)\b/i.test(name))) return false;
+          if (!web) {
+            if (!/\b(?:ddp|dd\+|e[ ._-]*ac[ ._-]*3|ac[ ._-]*3|aac|opus)\b/i.test(name)) return false;
+            if ("avc" === codec && "1080p" === res) capacity = 2; else if ("avc" === codec && "720p" === res) capacity = 1; else if (!("hevc" === codec && "1080p" === res && /\bUHD\b/i.test(name))) return false;
+          }
+        }
+        const cut = cutOf(name);
+        const audio = audioOf(name);
+        const provider = providerOf(name);
+        const blockers = releases.filter((release => {
+          const other = release.name;
+          const otherFamily = familyOf(release);
+          if (otherFamily && otherFamily !== family) return false;
+          const otherRes = resolutionOf(other);
+          if ("dvd" !== family && otherRes && otherRes !== res) return false;
+          const otherCut = cutOf(other);
+          if (cut && otherCut && cut !== otherCut) return false;
+          const otherAudio = audioOf(other);
+          const original = value => /\boriginal[ ._-]+audio\b/i.test(value);
+          if (web && (audio && original(other) || otherAudio && original(name))) return false;
+          const otherCodec = codecOf(other);
+          const otherColour = colourOf(other);
+          if ("2160p" === res && otherColour && colour !== otherColour) if (!("hdr10+" === colour && "hdr" === otherColour && hdr10Plus(other))) return false;
+          if (!web && "encode" === family && "2160p" !== res && codec && otherCodec && codec !== otherCodec) return false;
+          const otherProvider = providerOf(other);
+          if ("web-dl" === family && provider && otherProvider && provider !== otherProvider && codec && codec === otherCodec && ("2160p" !== res || colour === otherColour)) return false;
+          return true;
+        }));
+        return blockers.length < capacity;
+      }
+      var tracker = __webpack_require__(84);
+      var http = __webpack_require__(257);
+      const ORIGIN = "https://desitorrents.tv";
+      const RESULT_SELECTOR = [ ".torrent-search--list__name", ".torrent-listings-name", "article.torrent-search-row", "article.torrent-card", "article.torrent-search--grouped__result", "article.torrent-search--poster__result" ].join(", ");
+      const hasPagination = listing => listing.querySelector('a[rel="next"], a[href*="page="], nav[role="navigation"], .pagination');
+      const normalizeId = value => value.replace(/^tt/i, "").replace(/^0+/, "");
+      class DesiTorrents extends tracker.xw {
+        releaseSpecificResults=true;
+        async movieReleases(listing, matches, imdbId) {
+          const titlePaths = new Set(Array.from(listing.querySelectorAll('a[href*="/title/"]')).flatMap((link => {
+            const url = new URL(link.getAttribute("href"), ORIGIN);
+            return url.origin === ORIGIN && /^\/title\/[\w%-]+\/?$/.test(url.pathname) ? [ url.pathname ] : [];
+          })));
+          if (1 === titlePaths.size) {
+            const page = await (0, http.uU)(new URL([ ...titlePaths ][0], ORIGIN).href);
+            const imdbLink = page.querySelector(".meta__imdb a")?.getAttribute("href") ?? "";
+            const id = /imdb\.com\/title\/(tt\d+)(?:[/?#]|$)/i.exec(imdbLink)?.[1];
+            const table = page.querySelector(".similar-torrents__torrents");
+            if (id && normalizeId(id) === normalizeId(imdbId) && table && !hasPagination(table.closest(".similar-torrents-list") ?? table)) {
+              const rows = Array.from(table.querySelectorAll("tbody tr"));
+              const releases = rows.flatMap((row => {
+                const name = row.querySelector(".torrent-search--grouped__name a")?.textContent?.trim();
+                const type = row.querySelector(".similar-torrents__type")?.textContent?.trim();
+                return name ? [ {
+                  name,
+                  type
+                } ] : [];
+              }));
+              if (releases.length === rows.length && releases.length > 0) return releases;
+            }
+          }
+          if (hasPagination(listing)) return [];
+          const table = listing.querySelector(".torrent-search--list__results table");
+          if (!table) return [];
+          const rows = Array.from(table.querySelectorAll("tbody tr"));
+          if (matches.some((match => !table.contains(match)))) return [];
+          const releases = rows.flatMap((row => {
+            const id = row.getAttribute("data-imdb-id");
+            const name = row.querySelector(".torrent-search--list__name, .torrent-listings-name")?.textContent?.trim();
+            return id && normalizeId(id) === normalizeId(imdbId) && name ? [ {
+              name
+            } ] : [];
+          }));
+          return releases.length === rows.length ? releases : [];
+        }
+        name() {
+          return "DesiTorrents";
+        }
+        canRun() {
+          return false;
+        }
+        canBeUsedAsSource() {
+          return false;
+        }
+        canBeUsedAsTarget() {
+          return true;
+        }
+        async* getSearchRequest() {
+          yield {
+            total: 0
+          };
+        }
+        insertTrackersSelect() {}
+        async search(request) {
+          if (request.category !== tracker.WD.MOVIE && request.category !== tracker.WD.TV) return tracker.lt.NOT_CHECKED;
+          const rawId = "imdbId" in request ? request.imdbId : void 0;
+          const imdbId = "string" == typeof rawId ? /^tt(\d{7,})$/i.exec(rawId)?.[1] : void 0;
+          if (!imdbId) return tracker.lt.NOT_CHECKED;
+          const url = new URL("/torrents", ORIGIN);
+          url.searchParams.set("imdbId", imdbId);
+          const page = await (0, http.uU)(url.href);
+          const listing = page.querySelector(".torrent-search__component, .page__torrents");
+          if (!listing) return page.querySelector('form[action$="/login"] input[type="password"]') ? tracker.lt.NOT_LOGGED_IN : tracker.lt.NOT_CHECKED;
+          const matches = Array.from(listing.querySelectorAll(RESULT_SELECTOR));
+          if (matches.length > 0) {
+            const wrongId = matches.some((match => {
+              const rowId = match.closest("[data-imdb-id]")?.getAttribute("data-imdb-id");
+              return null != rowId && normalizeId(rowId) !== normalizeId(imdbId);
+            }));
+            if (wrongId) return tracker.lt.NOT_CHECKED;
+            const candidates = request.torrents.flatMap((({releaseName}) => releaseName ? [ {
+              name: releaseName
+            } ] : []));
+            if (request.category === tracker.WD.MOVIE && candidates.length > 0) {
+              const releases = await this.movieReleases(listing, matches, imdbId);
+              if (candidates.some((candidate => possibleDesiSlot(candidate, releases)))) return tracker.lt.POSSIBLE_MISSING_SLOT;
+            }
+            return tracker.lt.EXIST;
+          }
+          const resultSections = listing.querySelectorAll(".torrent-search--list__results, .torrent-search--card__results, .torrent-search--grouped__results, .torrent-search--poster__results");
+          const explicitlyEmpty = Array.from(resultSections).some((section => {
+            const text = section.textContent ?? "";
+            return /\b(?:There is no result in database for query|No torrents found)\b/i.test(text);
+          }));
+          return explicitlyEmpty ? tracker.lt.NOT_EXIST : tracker.lt.NOT_CHECKED;
+        }
+      }
+    },
     134: (__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
       __webpack_require__.d(__webpack_exports__, {
         Z: () => DiscFan
@@ -1451,6 +1628,7 @@
         const resolution = (0, _utils_utils__WEBPACK_IMPORTED_MODULE_0__.uV)(title);
         const tags = (0, _utils_utils__WEBPACK_IMPORTED_MODULE_0__.RN)(title);
         return {
+          releaseName: title,
           size,
           tags,
           dom: element,
@@ -2410,6 +2588,7 @@
               const tags = [];
               if (title.includes("Remux")) tags.push("Remux");
               const torrent = {
+                releaseName: title,
                 dom: element,
                 size,
                 tags,
@@ -3235,30 +3414,31 @@
             CHD: () => _CHD__WEBPACK_IMPORTED_MODULE_6__.Z,
             CLANSUD: () => _CLAN_SUD__WEBPACK_IMPORTED_MODULE_7__.Z,
             CinemaZ: () => _CinemaZ__WEBPACK_IMPORTED_MODULE_8__.Z,
-            DiscFan: () => _DiscFan__WEBPACK_IMPORTED_MODULE_9__.Z,
-            FL: () => _FL__WEBPACK_IMPORTED_MODULE_10__.Z,
-            GPW: () => _GPW__WEBPACK_IMPORTED_MODULE_11__.Z,
-            HDB: () => _HDB__WEBPACK_IMPORTED_MODULE_12__.Z,
-            HDSky: () => _HDSky__WEBPACK_IMPORTED_MODULE_13__.Z,
-            HDT: () => _HDT__WEBPACK_IMPORTED_MODULE_14__.Z,
-            IPT: () => _IPT__WEBPACK_IMPORTED_MODULE_15__.Z,
-            JPTV: () => _JPTV__WEBPACK_IMPORTED_MODULE_16__.Z,
-            JPop: () => _JPop__WEBPACK_IMPORTED_MODULE_17__.Z,
-            KG: () => _KG__WEBPACK_IMPORTED_MODULE_18__.Z,
-            LST: () => _LST__WEBPACK_IMPORTED_MODULE_20__.Z,
-            LatTeam: () => _LatTeam__WEBPACK_IMPORTED_MODULE_19__.Z,
-            MTV: () => _MTV__WEBPACK_IMPORTED_MODULE_21__.Z,
-            MTeam: () => _MTeam__WEBPACK_IMPORTED_MODULE_22__.Z,
-            NewInsane: () => _NewInsane__WEBPACK_IMPORTED_MODULE_24__.Z,
-            PTP: () => _PTP__WEBPACK_IMPORTED_MODULE_26__.Z,
-            Pter: () => _Pter__WEBPACK_IMPORTED_MODULE_25__.Z,
-            RED: () => _RED__WEBPACK_IMPORTED_MODULE_27__.Z,
-            SC: () => _SC__WEBPACK_IMPORTED_MODULE_28__.Z,
-            TL: () => _TL__WEBPACK_IMPORTED_MODULE_30__.Z,
-            TNT: () => _TNT__WEBPACK_IMPORTED_MODULE_31__.Z,
-            TSeeds: () => _TSeeds__WEBPACK_IMPORTED_MODULE_32__.Z,
-            TiK: () => _TiK__WEBPACK_IMPORTED_MODULE_29__.Z,
-            nCore: () => _nCore__WEBPACK_IMPORTED_MODULE_23__.Z
+            DesiTorrents: () => _DesiTorrents__WEBPACK_IMPORTED_MODULE_9__.Z,
+            DiscFan: () => _DiscFan__WEBPACK_IMPORTED_MODULE_10__.Z,
+            FL: () => _FL__WEBPACK_IMPORTED_MODULE_11__.Z,
+            GPW: () => _GPW__WEBPACK_IMPORTED_MODULE_12__.Z,
+            HDB: () => _HDB__WEBPACK_IMPORTED_MODULE_13__.Z,
+            HDSky: () => _HDSky__WEBPACK_IMPORTED_MODULE_14__.Z,
+            HDT: () => _HDT__WEBPACK_IMPORTED_MODULE_15__.Z,
+            IPT: () => _IPT__WEBPACK_IMPORTED_MODULE_16__.Z,
+            JPTV: () => _JPTV__WEBPACK_IMPORTED_MODULE_17__.Z,
+            JPop: () => _JPop__WEBPACK_IMPORTED_MODULE_18__.Z,
+            KG: () => _KG__WEBPACK_IMPORTED_MODULE_19__.Z,
+            LST: () => _LST__WEBPACK_IMPORTED_MODULE_21__.Z,
+            LatTeam: () => _LatTeam__WEBPACK_IMPORTED_MODULE_20__.Z,
+            MTV: () => _MTV__WEBPACK_IMPORTED_MODULE_22__.Z,
+            MTeam: () => _MTeam__WEBPACK_IMPORTED_MODULE_23__.Z,
+            NewInsane: () => _NewInsane__WEBPACK_IMPORTED_MODULE_25__.Z,
+            PTP: () => _PTP__WEBPACK_IMPORTED_MODULE_27__.Z,
+            Pter: () => _Pter__WEBPACK_IMPORTED_MODULE_26__.Z,
+            RED: () => _RED__WEBPACK_IMPORTED_MODULE_28__.Z,
+            SC: () => _SC__WEBPACK_IMPORTED_MODULE_29__.Z,
+            TL: () => _TL__WEBPACK_IMPORTED_MODULE_31__.Z,
+            TNT: () => _TNT__WEBPACK_IMPORTED_MODULE_32__.Z,
+            TSeeds: () => _TSeeds__WEBPACK_IMPORTED_MODULE_33__.Z,
+            TiK: () => _TiK__WEBPACK_IMPORTED_MODULE_30__.Z,
+            nCore: () => _nCore__WEBPACK_IMPORTED_MODULE_24__.Z
           });
           var _Aither__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(387);
           var _AvistaZ__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(168);
@@ -3269,32 +3449,33 @@
           var _CHD__WEBPACK_IMPORTED_MODULE_6__ = __webpack_require__(435);
           var _CLAN_SUD__WEBPACK_IMPORTED_MODULE_7__ = __webpack_require__(962);
           var _CinemaZ__WEBPACK_IMPORTED_MODULE_8__ = __webpack_require__(846);
-          var _DiscFan__WEBPACK_IMPORTED_MODULE_9__ = __webpack_require__(134);
-          var _FL__WEBPACK_IMPORTED_MODULE_10__ = __webpack_require__(245);
-          var _GPW__WEBPACK_IMPORTED_MODULE_11__ = __webpack_require__(219);
-          var _HDB__WEBPACK_IMPORTED_MODULE_12__ = __webpack_require__(468);
-          var _HDSky__WEBPACK_IMPORTED_MODULE_13__ = __webpack_require__(124);
-          var _HDT__WEBPACK_IMPORTED_MODULE_14__ = __webpack_require__(597);
-          var _IPT__WEBPACK_IMPORTED_MODULE_15__ = __webpack_require__(991);
-          var _JPTV__WEBPACK_IMPORTED_MODULE_16__ = __webpack_require__(407);
-          var _JPop__WEBPACK_IMPORTED_MODULE_17__ = __webpack_require__(196);
-          var _KG__WEBPACK_IMPORTED_MODULE_18__ = __webpack_require__(522);
-          var _LatTeam__WEBPACK_IMPORTED_MODULE_19__ = __webpack_require__(143);
-          var _LST__WEBPACK_IMPORTED_MODULE_20__ = __webpack_require__(576);
-          var _MTV__WEBPACK_IMPORTED_MODULE_21__ = __webpack_require__(422);
-          var _MTeam__WEBPACK_IMPORTED_MODULE_22__ = __webpack_require__(286);
-          var _NewInsane__WEBPACK_IMPORTED_MODULE_24__ = __webpack_require__(614);
-          var _PTP__WEBPACK_IMPORTED_MODULE_26__ = __webpack_require__(961);
-          var _Pter__WEBPACK_IMPORTED_MODULE_25__ = __webpack_require__(283);
-          var _RED__WEBPACK_IMPORTED_MODULE_27__ = __webpack_require__(641);
-          var _SC__WEBPACK_IMPORTED_MODULE_28__ = __webpack_require__(237);
-          var _TL__WEBPACK_IMPORTED_MODULE_30__ = __webpack_require__(790);
-          var _TNT__WEBPACK_IMPORTED_MODULE_31__ = __webpack_require__(510);
-          var _TSeeds__WEBPACK_IMPORTED_MODULE_32__ = __webpack_require__(707);
-          var _TiK__WEBPACK_IMPORTED_MODULE_29__ = __webpack_require__(855);
-          var _nCore__WEBPACK_IMPORTED_MODULE_23__ = __webpack_require__(754);
-          var __webpack_async_dependencies__ = __webpack_handle_async_dependencies__([ _PTP__WEBPACK_IMPORTED_MODULE_26__ ]);
-          _PTP__WEBPACK_IMPORTED_MODULE_26__ = (__webpack_async_dependencies__.then ? (await __webpack_async_dependencies__)() : __webpack_async_dependencies__)[0];
+          var _DesiTorrents__WEBPACK_IMPORTED_MODULE_9__ = __webpack_require__(690);
+          var _DiscFan__WEBPACK_IMPORTED_MODULE_10__ = __webpack_require__(134);
+          var _FL__WEBPACK_IMPORTED_MODULE_11__ = __webpack_require__(245);
+          var _GPW__WEBPACK_IMPORTED_MODULE_12__ = __webpack_require__(219);
+          var _HDB__WEBPACK_IMPORTED_MODULE_13__ = __webpack_require__(468);
+          var _HDSky__WEBPACK_IMPORTED_MODULE_14__ = __webpack_require__(124);
+          var _HDT__WEBPACK_IMPORTED_MODULE_15__ = __webpack_require__(597);
+          var _IPT__WEBPACK_IMPORTED_MODULE_16__ = __webpack_require__(991);
+          var _JPTV__WEBPACK_IMPORTED_MODULE_17__ = __webpack_require__(407);
+          var _JPop__WEBPACK_IMPORTED_MODULE_18__ = __webpack_require__(196);
+          var _KG__WEBPACK_IMPORTED_MODULE_19__ = __webpack_require__(522);
+          var _LatTeam__WEBPACK_IMPORTED_MODULE_20__ = __webpack_require__(143);
+          var _LST__WEBPACK_IMPORTED_MODULE_21__ = __webpack_require__(576);
+          var _MTV__WEBPACK_IMPORTED_MODULE_22__ = __webpack_require__(422);
+          var _MTeam__WEBPACK_IMPORTED_MODULE_23__ = __webpack_require__(286);
+          var _NewInsane__WEBPACK_IMPORTED_MODULE_25__ = __webpack_require__(614);
+          var _PTP__WEBPACK_IMPORTED_MODULE_27__ = __webpack_require__(961);
+          var _Pter__WEBPACK_IMPORTED_MODULE_26__ = __webpack_require__(283);
+          var _RED__WEBPACK_IMPORTED_MODULE_28__ = __webpack_require__(641);
+          var _SC__WEBPACK_IMPORTED_MODULE_29__ = __webpack_require__(237);
+          var _TL__WEBPACK_IMPORTED_MODULE_31__ = __webpack_require__(790);
+          var _TNT__WEBPACK_IMPORTED_MODULE_32__ = __webpack_require__(510);
+          var _TSeeds__WEBPACK_IMPORTED_MODULE_33__ = __webpack_require__(707);
+          var _TiK__WEBPACK_IMPORTED_MODULE_30__ = __webpack_require__(855);
+          var _nCore__WEBPACK_IMPORTED_MODULE_24__ = __webpack_require__(754);
+          var __webpack_async_dependencies__ = __webpack_handle_async_dependencies__([ _PTP__WEBPACK_IMPORTED_MODULE_27__ ]);
+          _PTP__WEBPACK_IMPORTED_MODULE_27__ = (__webpack_async_dependencies__.then ? (await __webpack_async_dependencies__)() : __webpack_async_dependencies__)[0];
           __webpack_async_result__();
         } catch (e) {
           __webpack_async_result__(e);
@@ -3391,6 +3572,7 @@
       let SearchResult = function(SearchResult) {
         SearchResult.EXIST = "EXIST";
         SearchResult.EXIST_BUT_MISSING_SLOT = "EXIST_BUT_MISSING_SLOT";
+        SearchResult.POSSIBLE_MISSING_SLOT = "POSSIBLE_MISSING_SLOT";
         SearchResult.NOT_EXIST = "NOT_EXIST";
         SearchResult.MAYBE_NOT_EXIST = "MAYBE_NOT_EXIST";
         SearchResult.NOT_EXIST_WITH_REQUEST = "NOT_EXIST_WITH_REQUEST";

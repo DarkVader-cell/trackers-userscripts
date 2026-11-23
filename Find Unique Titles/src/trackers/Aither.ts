@@ -115,6 +115,7 @@ export default class Aither extends AbstractTracker {
         torrents: [
           {
             size,
+            releaseName: torrentName,
             tags: parseTags(torrentName),
             dom: element,
             resolution: parseResolution(torrentName),

@@ -10,6 +10,12 @@ paste the content of the file `dist/find.unique.titles.user.js`.
 You can generate it by running run `npm run dev`.
 
 # Changelog
+## 0.0.30
+- Flag possible DesiTorrents movie slots with a dashed magenta border. Slot suggestions never trigger automated torrent actions. Provider quality, audio track completeness, TV pack trumping, and inactivity or quality-based trumping still require manual review.
+
+## 0.0.29
+- Add DesiTorrents as a destination using UNIT3D's IMDb ID search. Slot checks are not yet supported for DesiTorrents.
+
 ## 0.0.27
 - Add configurable action limits, confirmation, cooldown, and stop-on-error safeguards.
 - Add in-page automation status, Settings, and Stop controls.

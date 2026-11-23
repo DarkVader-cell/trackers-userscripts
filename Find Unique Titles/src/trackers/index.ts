@@ -7,6 +7,7 @@ import CG from "./CG";
 import CHD from "./CHD";
 import CLANSUD from "./CLAN-SUD";
 import CinemaZ from "./CinemaZ";
+import DesiTorrents from "./DesiTorrents";
 import DiscFan from "./DiscFan";
 import FL from "./FL";
 import GPW from "./GPW";
@@ -42,6 +43,7 @@ export {
   CHD,
   CLANSUD,
   CinemaZ,
+  DesiTorrents,
   DiscFan,
   FL,
   GPW,

@@ -1,4 +1,5 @@
 export interface Torrent {
+  releaseName?: string;
   container?: string | null;
   size: number | null;
   tags: Array<string> | null;
@@ -70,6 +71,7 @@ export interface MetaData {
 export enum SearchResult {
   EXIST = "EXIST",
   EXIST_BUT_MISSING_SLOT = "EXIST_BUT_MISSING_SLOT",
+  POSSIBLE_MISSING_SLOT = "POSSIBLE_MISSING_SLOT",
   NOT_EXIST = "NOT_EXIST",
   MAYBE_NOT_EXIST = "MAYBE_NOT_EXIST",
   NOT_EXIST_WITH_REQUEST = "NOT_EXIST_WITH_REQUEST",
@@ -80,6 +82,7 @@ export enum SearchResult {
 }
 
 export interface tracker {
+  readonly releaseSpecificResults?: boolean;
   canRun(url: string): boolean;
 
   search(request: Request<Category>): Promise<SearchResult>;

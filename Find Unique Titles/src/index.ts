@@ -184,6 +184,7 @@ const main = async function () {
           }
           if (
             settings.useCache &&
+            !targetTracker.releaseSpecificResults &&
             request.imdbId &&
             existsInCache(targetTracker.name(), request.imdbId)
           ) {
@@ -198,7 +199,7 @@ const main = async function () {
             response == SearchResult.EXIST ||
             response == SearchResult.NOT_ALLOWED
           ) {
-            if (request.imdbId) {
+            if (request.imdbId && !targetTracker.releaseSpecificResults) {
               await addToCache(targetTracker.name(), request.imdbId);
             }
             hideTorrents(request);
@@ -278,6 +279,12 @@ const main = async function () {
                 "Title was not found on target tracker"
               );
               request.dom[0].style.border = "2px solid #3498db";
+            } else if (response == SearchResult.POSSIBLE_MISSING_SLOT) {
+              request.dom[0].setAttribute(
+                "title",
+                "Possible DesiTorrents slot for at least one release. Verify quality, audio, and upload rules manually."
+              );
+              request.dom[0].style.border = "2px dashed #ff00ff";
             } else if (response == SearchResult.EXIST_BUT_MISSING_SLOT) {
               request.dom[0].setAttribute(
                 "title",

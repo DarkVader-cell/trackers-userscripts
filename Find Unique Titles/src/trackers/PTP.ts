@@ -89,6 +89,7 @@ const parseTorrents = (element: HTMLElement) => {
         tags.push("Remux");
       }
       const torrent: Torrent = {
+        releaseName: title,
         dom: element,
         size,
         tags,

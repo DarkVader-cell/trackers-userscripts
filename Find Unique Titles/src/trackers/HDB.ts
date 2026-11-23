@@ -36,6 +36,7 @@ function parseTorrent(element: HTMLElement): Torrent {
   const tags = parseTags(title);
 
   return {
+    releaseName: title,
     size,
     tags,
     dom: element,
