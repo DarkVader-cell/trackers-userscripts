@@ -18,14 +18,16 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: "lts/*"
+          node-version: "22"
           cache: "npm"
 
       - name: Install dependencies
         run: npm ci
 
       - name: Build userscript
-        run: npm run build --workspace="Find Unique Titles"
+        run: |
+          npm run build --workspace=common
+          npm run build --workspace="Find Unique Titles"
 
       - name: Create GitHub release and upload userscript
         env:

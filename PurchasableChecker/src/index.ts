@@ -1,4 +1,4 @@
-import tracker_tools from "common";
+import { fetchAndParseHtml } from "common/http";
 
 console.log("PurchasableChecker loaded");
 
@@ -70,7 +70,7 @@ const checkRequests = async (domainsList) => {
   for (let i = 0; i < requestLinks.length; i++) {
     const requestLink = requestLinks[i] as HTMLAnchorElement;
     if (requestLink.parentElement.innerText.includes("Purchasable")) {
-      const result = await tracker_tools.http.fetchAndParseHtml(
+      const result = await fetchAndParseHtml(
         requestLink.href
       );
       const purchasableLink = getPurchasableLink(result);

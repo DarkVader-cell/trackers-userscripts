@@ -1,7 +1,10 @@
 {
   "name": "trackers-userscripts",
   "scripts": {
-    "format": "prettier -w **/src/*"
+    "format": "prettier -w **/src/*",
+    "build": "npm run build --workspace=common && npm run build --workspace=\"Find Unique Titles\" --workspace=PurchasableChecker && npm run stage:userscripts",
+    "stage:userscripts": "mkdir -p dist && cp 'Find Unique Titles/dist/find.unique.titles.user.js' PurchasableChecker/dist/purchasable-checker.user.js dist/",
+    "test": "node --test 'Find Unique Titles/tests/desiSlots.test.mjs'"
   },
   "workspaces": [
     "common",
